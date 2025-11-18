@@ -23,7 +23,50 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string[]>([])
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+
+  const formatToYouTubeTimestamp = (timestamp: string): string => {
+    // Convert SRT format (HH:MM:SS,mmm) to YouTube format (HH:MM:SS or MM:SS)
+    const parts = timestamp.split(',')
+    const timePart = parts[0] // Get HH:MM:SS part
+    const [hours, minutes, seconds] = timePart.split(':').map(Number)
+    
+    // YouTube format: omit hours if 0, otherwise HH:MM:SS
+    // Round seconds to nearest integer
+    const roundedSeconds = Math.floor(seconds)
+    
+    if (hours === 0) {
+      return `${minutes}:${roundedSeconds.toString().padStart(2, '0')}`
+    }
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${roundedSeconds.toString().padStart(2, '0')}`
+  }
+
+  const copyTimestamp = async (timestamp: string, index: number) => {
+    try {
+      const youtubeTimestamp = formatToYouTubeTimestamp(timestamp)
+      await navigator.clipboard.writeText(youtubeTimestamp)
+      setCopiedIndex(index)
+      setTimeout(() => setCopiedIndex(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy timestamp:', err)
+    }
+  }
+
+  const copyAllInsights = async () => {
+    try {
+      const formattedInsights = insights.map((insight, index) => {
+        const youtubeTimestamp = formatToYouTubeTimestamp(insight.timestamp)
+        return `${youtubeTimestamp} - ${insight.description}`
+      }).join('\n\n')
+      
+      await navigator.clipboard.writeText(formattedInsights)
+      setCopiedIndex(-1) // Use -1 to indicate "Copy All" was clicked
+      setTimeout(() => setCopiedIndex(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy all insights:', err)
+    }
+  }
 
   const generateInsights = async () => {
     if (!videoUrl.trim()) {
@@ -246,18 +289,67 @@ function App() {
             
             {insights.length > 0 && (
               <div className="insights-container">
-                <h3 className="insights-title">Actionable Insights ({insights.length})</h3>
-                <div className="insights-grid">
-                  {insights.map((insight, index) => (
-                    <article key={index} className="insight-card">
-                      <div className="insight-header">
-                        <span className="insight-number">#{index + 1}</span>
-                        <span className="insight-timestamp">{insight.timestamp}</span>
-                      </div>
-                      <p className="insight-description">{insight.description}</p>
-                    </article>
-                  ))}
+                <div className="insights-header">
+                  <h3 className="insights-title">Actionable Insights ({insights.length})</h3>
+                  <button
+                    className="copy-all-button"
+                    onClick={copyAllInsights}
+                    title="Copy all insights with timestamps"
+                    aria-label="Copy all insights"
+                  >
+                    {copiedIndex === -1 ? (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span>Copy All</span>
+                      </>
+                    )}
+                  </button>
                 </div>
+                <ul className="insights-list">
+                  {insights.map((insight, index) => {
+                    const youtubeTimestamp = formatToYouTubeTimestamp(insight.timestamp)
+                    return (
+                      <li key={index} className="insight-item">
+                        <div className="insight-content">
+                          <span className="insight-number">#{index + 1}</span>
+                          <div className="insight-text">
+                            <p className="insight-description">{insight.description}</p>
+                          </div>
+                        </div>
+                        <div className="insight-actions">
+                          <span className="insight-timestamp">{youtubeTimestamp}</span>
+                          <button
+                            className="copy-button"
+                            onClick={() => copyTimestamp(insight.timestamp, index)}
+                            title="Copy timestamp"
+                            aria-label={`Copy timestamp ${youtubeTimestamp}`}
+                          >
+                            {copiedIndex === index ? (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                              </svg>
+                            ) : (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
               </div>
             )}
           </div>

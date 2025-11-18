@@ -22,8 +22,12 @@ var ytAgent = builder.AddPythonModule("yt-agent", "./app/", "yt_agent")
 
 var app = builder.AddUvicornApp("app", "./app", "main:app")
     .WithUv()
-    .WithExternalHttpEndpoints()
-    .WithHttpHealthCheck("/health");
+    .WithEnvironment("AZURE_OPENAI_ENDPOINT_GPT5", envVars["AZURE_OPENAI_ENDPOINT_GPT5"])
+    .WithEnvironment("AZURE_OPENAI_API_KEY_GPT5", envVars["AZURE_OPENAI_API_KEY_GPT5"])
+    .WithEnvironment("AZURE_OPENAI_MODEL_DEPLOYMENT_NAME_GPT5", envVars["AZURE_OPENAI_MODEL_DEPLOYMENT_NAME_GPT5"])
+    .WithEnvironment("AZURE_OPENAI_ENDPOINT_VERSION_GPT5", envVars["AZURE_OPENAI_ENDPOINT_VERSION_GPT5"])
+    .WithHttpHealthCheck("/health")
+    .WithExternalHttpEndpoints();
 
 var frontend = builder.AddViteApp("frontend", "./frontend")
     .WithReference(app)
