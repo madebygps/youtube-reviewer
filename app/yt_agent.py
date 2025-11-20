@@ -1,14 +1,12 @@
-import asyncio
+import json
 import logging
 import os
 import re
-from typing import List
+from typing import List, Never
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from pydantic import BaseModel, Field
 from agent_framework import (
-    ChatAgent,
-    ChatMessage,
     Executor,
     WorkflowBuilder,
     WorkflowContext,
@@ -59,8 +57,7 @@ class ActionableInsight(BaseModel):
 class ActionableInsightsAgentResponse(BaseModel):
     insights: List[ActionableInsight] = Field(
         ...,
-        description="A list of actionable insights derived " \
-        "from the video captions.",
+        description="A list of actionable insights derived " "from the video captions.",
     )
 
 
@@ -69,17 +66,18 @@ class CaptionExtractor(Executor):
         super().__init__(id=id or "caption_extractor")
 
     @handler
-    async def handle(
-        self, message: ChatMessage, ctx: WorkflowContext[str]
-    ) -> None:
-        # Parse message: format is "video_url|||PROMPT_SEPARATOR|||custom_prompt" or just "video_url"
-        message_text = message.text.strip()
-        if "|||PROMPT_SEPARATOR|||" in message_text:
-            message_parts = message_text.split("|||PROMPT_SEPARATOR|||", 1)
-            video_url = message_parts[0]
-            custom_prompt = message_parts[1]
-        else:
-            video_url = message_text
+    async def handle(self, message: str, ctx: WorkflowContext[str]) -> None:
+
+        try:
+            data = json.loads(message)
+            if isinstance(data, str):
+                video_url = data
+                custom_prompt = None
+            else:
+                video_url = data.get("video_url")
+                custom_prompt = data.get("custom_prompt")
+        except json.JSONDecodeError:
+            video_url = message.strip()
             custom_prompt = None
 
         # Extract video ID from URL
@@ -93,13 +91,12 @@ class CaptionExtractor(Executor):
         # Convert to SRT format
         srt_captions = self._convert_to_srt(transcript)
 
-        # Pass both captions and custom prompt to next executor
-        if custom_prompt:
-            await ctx.send_message(
-                f"{srt_captions}|||CUSTOM_PROMPT|||{custom_prompt}"
-            )
-        else:
-            await ctx.send_message(srt_captions)
+        payload = {
+            "captions": srt_captions,
+            "custom_prompt": custom_prompt
+        }
+
+        await ctx.send_message(json.dumps(payload))
 
     def _extract_video_id(self, url: str) -> str:
         """Extract video ID from YouTube URL"""
@@ -151,16 +148,19 @@ class ActionableSummaryGenerator(Executor):
 
     @handler
     async def handle(
-        self, message: str, ctx: WorkflowContext[List[ActionableInsight]]
+        self, message: str, ctx: WorkflowContext[Never, List[ActionableInsight]]
     ) -> None:
-        # Parse message: format is "captions|||CUSTOM_PROMPT|||prompt" or just "captions"
-        message_parts = message.split("|||CUSTOM_PROMPT|||", 1)
-        captions = message_parts[0]
-        custom_prompt = message_parts[1] if len(message_parts) > 1 else None
-
-        logging.info(f"Received captions length: {len(captions)} characters")
-        logging.info(f"First 500 chars: {captions[:500]}")
-        logging.info(f"Custom prompt provided: {custom_prompt is not None}")
+        try:
+            data = json.loads(message)
+            if isinstance(data, str):
+                captions = data
+                custom_prompt = None
+            else:
+                captions = data.get("captions")
+                custom_prompt = data.get("custom_prompt")
+        except json.JSONDecodeError:
+            captions = message.strip()
+            custom_prompt = None
 
         # Build the prompt based on whether custom prompt is provided
         if custom_prompt:
@@ -176,20 +176,21 @@ class ActionableSummaryGenerator(Executor):
 
         agent_response = await self._actionable_insights_agent.run(prompt)
 
-        insights_payload = agent_response.value
-        logging.info(f"Agent response type: {type(insights_payload)}")
-        logging.info(f"Insights payload: {insights_payload}")
-
-        # Extract the insights list from the response
-        if insights_payload and hasattr(insights_payload, "insights"):
-            insights = insights_payload.insights
-            logging.info(f"Extracted {len(insights)} insights")
-            await ctx.add_event(GenerateInsightsEvent(insights_payload))
-            await ctx.yield_output(insights)
+        if isinstance(agent_response.value, ActionableInsightsAgentResponse):
+            insights_payload = agent_response.value
         else:
-            logging.warning("No insights generated")
-            await ctx.yield_output([])
-
+            logging.error(
+                "Unexpected agent response type: "
+                f"{type(agent_response.value)}"
+            )
+            empty_insights: List[ActionableInsight] = []
+            await ctx.yield_output(empty_insights)
+            return
+        
+        insights = insights_payload.insights
+        logging.info(f"Extracted {len(insights)} insights")
+        await ctx.add_event(GenerateInsightsEvent(insights_payload))
+        await ctx.yield_output(insights)
 
 def get_workflow():
     caption_extractor = CaptionExtractor()

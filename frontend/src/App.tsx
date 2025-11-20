@@ -55,7 +55,7 @@ function App() {
 
   const copyAllInsights = async () => {
     try {
-      const formattedInsights = insights.map((insight, index) => {
+      const formattedInsights = insights.map((insight) => {
         const youtubeTimestamp = formatToYouTubeTimestamp(insight.timestamp)
         return `${youtubeTimestamp} - ${insight.description}`
       }).join('\n\n')

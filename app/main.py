@@ -14,13 +14,12 @@ import fastapi
 import fastapi.responses
 import fastapi.staticfiles
 import opentelemetry.instrumentation.fastapi as otel_fastapi
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import telemetry
 from agent_framework import (
-    ChatMessage,
     ExecutorInvokedEvent,
     ExecutorCompletedEvent,
     ExecutorFailedEvent,
@@ -31,8 +30,7 @@ from yt_agent import workflow, ActionableInsight
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -40,15 +38,23 @@ logger = logging.getLogger(__name__)
 # Pydantic models for API
 class GenerateInsightsRequest(BaseModel):
     """Request model for generating insights from a YouTube video."""
+
     video_url: str = Field(..., description="The YouTube video URL to analyze")
-    custom_prompt: Optional[str] = Field(None, description="Optional custom prompt for insight generation")
+    custom_prompt: Optional[str] = Field(
+        None, description="Optional custom prompt for insight generation"
+    )
 
 
 class GenerateInsightsResponse(BaseModel):
     """Response model for insights generation."""
+
     success: bool = Field(..., description="Whether the operation was successful")
-    insights: List[ActionableInsight] = Field(default_factory=list, description="List of actionable insights")
-    message: Optional[str] = Field(None, description="Optional message or error details")
+    insights: List[ActionableInsight] = Field(
+        default_factory=list, description="List of actionable insights"
+    )
+    message: Optional[str] = Field(
+        None, description="Optional message or error details"
+    )
 
 
 @contextlib.asynccontextmanager
@@ -64,7 +70,7 @@ app = FastAPI(
     title="YouTube Reviewer API",
     description="REST API for generating actionable insights from YouTube videos",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 otel_fastapi.FastAPIInstrumentor.instrument_app(app, exclude_spans=["send"])
@@ -92,136 +98,60 @@ async def health_check():
     return "Healthy"
 
 
-@app.post("/generateinsights", response_model=GenerateInsightsResponse)
-async def generate_insights(request: GenerateInsightsRequest) -> GenerateInsightsResponse:
-    """
-    Generate actionable insights from a YouTube video.
-    
-    This endpoint processes a YouTube video URL, extracts captions,
-    and generates actionable insights using an AI agent workflow.
-    
-    Args:
-        request: Contains the YouTube video URL to analyze
-        
-    Returns:
-        GenerateInsightsResponse with success status and insights list
-    """
-    try:
-        logger.info(f"📹 Generating insights for video: {request.video_url}")
-        
-        # Create input message for the workflow
-        # Format: video_url|||PROMPT_SEPARATOR|||custom_prompt (if provided)
-        message_text = request.video_url
-        if request.custom_prompt:
-            message_text = f"{request.video_url}|||PROMPT_SEPARATOR|||{request.custom_prompt}"
-        input_message = ChatMessage(role="user", text=message_text)
-        
-        # Run the workflow and collect the output
-        workflow_output = None
-        async for event in workflow.run_stream(input_message):
-            if isinstance(event, WorkflowOutputEvent):
-                # Capture the workflow output (list of insights)
-                workflow_output = event.data
-                count = len(workflow_output) if workflow_output else 0
-                logger.info(f"✅ Workflow completed with {count} insights")
-                break
-            elif isinstance(event, ExecutorFailedEvent):
-                error_msg = event.details.message or "Workflow failed"
-                logger.error(f"❌ Workflow failed: {error_msg}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to generate insights: {error_msg}"
-                )
-        
-        if workflow_output is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Workflow did not produce output"
-            )
-        
-        # Convert output to response format
-        insights = []
-        if isinstance(workflow_output, list):
-            for item in workflow_output:
-                if isinstance(item, ActionableInsight):
-                    insights.append(item)
-                elif isinstance(item, dict):
-                    insights.append(ActionableInsight(**item))
-        
-        logger.info(f"✅ Successfully generated {len(insights)} insights")
-        
-        return GenerateInsightsResponse(
-            success=True,
-            insights=insights,
-            message=f"Generated {len(insights)} actionable insights"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Error generating insights: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate insights: {str(e)}"
-        )
-
-
 @app.websocket("/ws/generateinsights")
 async def websocket_generate_insights(websocket: WebSocket):
     """
     WebSocket endpoint for real-time insights generation.
     Streams workflow events back to the frontend as they occur.
-    
+
     Protocol:
     1. Client connects and sends JSON: {"video_url": "https://..."}
     2. Server streams events: {"type": "...", "event": "...", "timestamp": "..."}
     3. Final message: {"type": "completed", "output": [...], "timestamp": "..."}
     """
     await websocket.accept()
-    
+
     try:
+
         # Receive the initial request from the client
+
         data = await websocket.receive_text()
         request_data = json.loads(data)
-        
-        video_url = request_data.get('video_url')
+
+        video_url = request_data.get("video_url")
         if not video_url:
-            await websocket.send_json({
-                "type": "error",
-                "message": "video_url is required",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": "video_url is required",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             await websocket.close(code=1008, reason="video_url required")
             return
-        
-        custom_prompt = request_data.get('custom_prompt')
+
         logger.info(f"🤖 WebSocket insights request for video: {video_url}")
-        
+
         # Send initial acknowledgment
-        await websocket.send_json({
-            "type": "started",
-            "message": "Insights generation workflow initiated...",
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        })
-        
-        # Create input message for the workflow
-        # Format: video_url|||PROMPT_SEPARATOR|||custom_prompt (if provided)
-        message_text = video_url
-        if custom_prompt:
-            message_text = f"{video_url}|||PROMPT_SEPARATOR|||{custom_prompt}"
-        input_message = ChatMessage(role="user", text=message_text)
-        
+        await websocket.send_json(
+            {
+                "type": "started",
+                "message": "Insights generation workflow initiated...",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
         # Run the workflow and stream events
         workflow_output = None
         try:
-            async for event in workflow.run_stream(input_message):
+            async for event in workflow.run_stream(json.dumps(request_data)):
                 now = datetime.now(timezone.utc).isoformat()
-                
+
                 if isinstance(event, WorkflowStartedEvent):
                     event_data = {
                         "type": "workflow_started",
                         "event": str(event.data),
-                        "timestamp": now
+                        "timestamp": now,
                     }
                 elif isinstance(event, WorkflowOutputEvent):
                     # Capture the workflow output
@@ -235,71 +165,77 @@ async def websocket_generate_insights(websocket: WebSocket):
                             elif isinstance(item, dict):
                                 insights_list.append(item)
                         workflow_output = insights_list
-                    
+
                     event_data = {
                         "type": "workflow_output",
                         "event": workflow_output,
-                        "timestamp": now
+                        "timestamp": now,
                     }
                 elif isinstance(event, ExecutorInvokedEvent):
                     event_data = {
                         "type": "step_started",
                         "event": event.data,
                         "id": event.executor_id,
-                        "timestamp": now
+                        "timestamp": now,
                     }
                 elif isinstance(event, ExecutorCompletedEvent):
                     event_data = {
                         "type": "step_completed",
                         "event": event.data,
                         "id": event.executor_id,
-                        "timestamp": now
+                        "timestamp": now,
                     }
                 elif isinstance(event, ExecutorFailedEvent):
                     event_data = {
                         "type": "step_failed",
                         "event": event.details.message,
                         "id": event.executor_id,
-                        "timestamp": now
+                        "timestamp": now,
                     }
                 else:
                     # Generic event
                     event_data = {
                         "type": "event",
                         "event": str(event),
-                        "timestamp": now
+                        "timestamp": now,
                     }
-                
+
                 await websocket.send_json(event_data)
                 logger.info(f"📤 Sent event: {event_data['type']}")
-            
+
             # Send completion message with the workflow output
-            await websocket.send_json({
-                "type": "completed",
-                "message": "Workflow completed successfully",
-                "output": workflow_output,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+            await websocket.send_json(
+                {
+                    "type": "completed",
+                    "message": "Workflow completed successfully",
+                    "output": workflow_output,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             logger.info("✅ Insights generation workflow completed")
-            
+
         except Exception as workflow_error:
             logger.error(f"❌ Workflow error: {workflow_error}")
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Workflow error: {str(workflow_error)}",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
-    
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": f"Workflow error: {str(workflow_error)}",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
     except WebSocketDisconnect:
         logger.info("🔌 WebSocket disconnected")
     except Exception as e:
         logger.error(f"❌ WebSocket error: {e}")
         try:
-            await websocket.send_json({
-                "type": "error",
-                "message": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": str(e),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         except Exception:
             pass
     finally:
@@ -335,5 +271,5 @@ if os.path.exists("static"):
     app.mount(
         "/static",
         fastapi.staticfiles.StaticFiles(directory="static", html=True),
-        name="static"
+        name="static",
     )
