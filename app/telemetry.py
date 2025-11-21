@@ -14,21 +14,32 @@ import opentelemetry.trace as otel_trace
 
 def configure_opentelemetry():
 
-    otel_trace.set_tracer_provider(otel_sdk_trace.TracerProvider())
+    # Traces
+    tracer_provider = otel_trace.get_tracer_provider()
+    if not isinstance(tracer_provider, otel_sdk_trace.TracerProvider):
+        tracer_provider = otel_sdk_trace.TracerProvider()
+        otel_trace.set_tracer_provider(tracer_provider)
+
+# 
     otlp_span_exporter = trace_exporter.OTLPSpanExporter()
     span_processor = otel_trace_export.BatchSpanProcessor(otlp_span_exporter)
-    otel_trace.get_tracer_provider().add_span_processor(span_processor)
+    tracer_provider.add_span_processor(span_processor)
 
+    # Metrics
     otlp_metric_exporter = metric_exporter.OTLPMetricExporter()
     metric_reader = otel_metrics_export.PeriodicExportingMetricReader(otlp_metric_exporter, export_interval_millis=5000)
     otel_metrics.set_meter_provider(otel_sdk_metrics.MeterProvider(metric_readers=[metric_reader]))
 
-    otel_logs.set_logger_provider(otel_sdk_logs.LoggerProvider())
+    # Logs
+    logger_provider = otel_logs.get_logger_provider()
+    if not isinstance(logger_provider, otel_sdk_logs.LoggerProvider):
+        logger_provider = otel_sdk_logs.LoggerProvider()
+        otel_logs.set_logger_provider(logger_provider)
+
     otlp_log_exporter = log_exporter.OTLPLogExporter()
     log_processor = otel_logs_export.BatchLogRecordProcessor(otlp_log_exporter)
-    otel_logs.get_logger_provider().add_log_record_processor(log_processor)
+    logger_provider.add_log_record_processor(log_processor)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[logging.StreamHandler(), otel_sdk_logs.LoggingHandler(logger_provider=otel_logs.get_logger_provider())]
-    )
+    # Add LoggingHandler to root logger
+    handler = otel_sdk_logs.LoggingHandler(logger_provider=logger_provider)
+    logging.getLogger().addHandler(handler)

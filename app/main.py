@@ -28,7 +28,7 @@ from agent_framework import (
 )
 from yt_agent import workflow, ActionableInsight
 
-# Configure logging
+# Configure logging (will be enhanced with OpenTelemetry during startup)
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
@@ -62,6 +62,7 @@ async def lifespan(app):
     """Manage application lifespan - startup and shutdown events"""
     logger.info("🚀 Starting YouTube Reviewer API Server...")
     telemetry.configure_opentelemetry()
+    
     yield
     logger.info("🛑 Shutting down YouTube Reviewer API Server...")
 
@@ -74,7 +75,6 @@ app = FastAPI(
 )
 
 otel_fastapi.FastAPIInstrumentor.instrument_app(app, exclude_spans=["send"])
-
 
 # Configure CORS
 app.add_middleware(
