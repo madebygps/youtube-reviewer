@@ -5,17 +5,20 @@ import re
 from typing import List, Never
 
 from youtube_transcript_api import YouTubeTranscriptApi
-from pydantic import BaseModel, Field
 from agent_framework import (
     Executor,
     WorkflowBuilder,
     WorkflowContext,
-    WorkflowEvent,
     handler,
 )
 from agent_framework.azure import AzureOpenAIChatClient
 from agent_framework.observability import setup_observability
 
+from models import (
+    ActionableInsightsAgentResponse,
+    ActionableInsight,
+    GenerateInsightsEvent,
+)
 
 DEFAULT_AZURE_API_VERSION = "2024-02-15-preview"
 
@@ -29,36 +32,6 @@ chat_client = AzureOpenAIChatClient(
 )
 
 # Custom Workflow Events
-
-
-class GenerateInsightsEvent(WorkflowEvent):
-    """Event emitted when insights generation is complete."""
-
-    def __init__(self, insights_data: "ActionableInsightsAgentResponse"):
-        super().__init__(
-            f"Insights generation complete "
-            f"with {len(insights_data.insights)} insights"
-        )
-        self.insights_data = insights_data
-
-
-class ActionableInsight(BaseModel):
-    description: str = Field(
-        ...,
-        description="The actionable insight derived from the video captions.",
-    )
-    timestamp: str = Field(
-        ...,
-        description="The timestamp from when the actionable insight "
-        "is based off of.",
-    )
-
-
-class ActionableInsightsAgentResponse(BaseModel):
-    insights: List[ActionableInsight] = Field(
-        ...,
-        description="A list of actionable insights derived " "from the video captions.",
-    )
 
 
 class CaptionExtractor(Executor):
