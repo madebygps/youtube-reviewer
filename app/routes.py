@@ -1,4 +1,3 @@
-
 # Health check endpoint
 
 import fastapi
@@ -11,7 +10,6 @@ from fastapi import WebSocket, WebSocketDisconnect, APIRouter
 
 from agent_framework import (
     ExecutorInvokedEvent,
-    ExecutorCompletedEvent,
     ExecutorFailedEvent,
     WorkflowOutputEvent,
     WorkflowStartedEvent,
@@ -44,9 +42,6 @@ async def websocket_generate_insights(websocket: WebSocket):
     await websocket.accept()
 
     try:
-
-        # Receive the initial request from the client
-
         data = await websocket.receive_text()
         request_data = json.loads(data)
 
@@ -62,7 +57,7 @@ async def websocket_generate_insights(websocket: WebSocket):
             await websocket.close(code=1008, reason="video_url required")
             return
 
-        logger.info(f"🤖 WebSocket insights request for video: {video_url}")
+        logger.info(f"🎬 Starting insights generation for video: {video_url}")
 
         # Send initial acknowledgment
         await websocket.send_json(
@@ -111,7 +106,7 @@ async def websocket_generate_insights(websocket: WebSocket):
                         "id": event.executor_id,
                         "timestamp": now,
                     }
-                
+
                 elif isinstance(event, ExecutorFailedEvent):
                     event_data = {
                         "type": "step_failed",
@@ -121,7 +116,6 @@ async def websocket_generate_insights(websocket: WebSocket):
                     }
                 else:
                     continue
-               
 
                 await websocket.send_json(event_data)
                 logger.info(f"📤 Sent event: {event_data['type']}")
