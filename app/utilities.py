@@ -1,6 +1,8 @@
 import re
 from typing import Iterable
 
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 
 def extract_video_id(url) -> str | None:
@@ -9,6 +11,14 @@ def extract_video_id(url) -> str | None:
         return match.group(1)
     else:
         return None
+    
+
+def fetch_transcript(video_id: str, languages: list[str] | None = None):
+    """Fetch transcript from YouTube (blocking I/O)."""
+    if languages is None:
+        languages = ["en"]
+    api = YouTubeTranscriptApi()
+    return api.fetch(video_id, languages)
 
 
 def convert_to_text_with_timestamps(transcript: Iterable) -> str:

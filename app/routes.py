@@ -78,6 +78,7 @@ async def websocket_generate_insights(websocket: WebSocket):
         try:
             async for event in yt_workflow.run_stream(json.dumps(request_data)):
                 now = datetime.now(timezone.utc).isoformat()
+                event_data = None
 
                 if isinstance(event, WorkflowStartedEvent):
                     event_data = {
@@ -110,13 +111,7 @@ async def websocket_generate_insights(websocket: WebSocket):
                         "id": event.executor_id,
                         "timestamp": now,
                     }
-                elif isinstance(event, ExecutorCompletedEvent):
-                    event_data = {
-                        "type": "step_completed",
-                        "event": event.data,
-                        "id": event.executor_id,
-                        "timestamp": now,
-                    }
+                
                 elif isinstance(event, ExecutorFailedEvent):
                     event_data = {
                         "type": "step_failed",
@@ -125,12 +120,8 @@ async def websocket_generate_insights(websocket: WebSocket):
                         "timestamp": now,
                     }
                 else:
-                    # Generic event
-                    event_data = {
-                        "type": "event",
-                        "event": str(event),
-                        "timestamp": now,
-                    }
+                    continue
+               
 
                 await websocket.send_json(event_data)
                 logger.info(f"📤 Sent event: {event_data['type']}")

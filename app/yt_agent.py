@@ -1,9 +1,9 @@
+import asyncio
 import json
 import logging
 import os
 from typing import List, Never
 
-from youtube_transcript_api import YouTubeTranscriptApi
 from agent_framework import (
     Executor,
     WorkflowBuilder,
@@ -18,7 +18,7 @@ from models import (
     ActionableInsight,
     GenerateInsightsEvent,
 )
-from utilities import extract_video_id, convert_to_text_with_timestamps
+from utilities import extract_video_id, convert_to_text_with_timestamps, fetch_transcript
 
 DEFAULT_AZURE_API_VERSION = "2024-02-15-preview"
 
@@ -59,8 +59,9 @@ class CaptionExtractor(Executor):
             return
 
         try:
-            youtube_transcript_api = YouTubeTranscriptApi()
-            transcript = youtube_transcript_api.fetch(video_id, ["en"])
+            
+            
+            transcript = await asyncio.to_thread(fetch_transcript, video_id, ["end"])
             formatted_captions = convert_to_text_with_timestamps(transcript)
 
             payload = {
@@ -133,6 +134,8 @@ class ActionableSummaryGenerator(Executor):
         logging.info(f"Extracted {len(insights)} insights")
         await ctx.add_event(GenerateInsightsEvent(insights_payload))
         await ctx.yield_output(insights)
+
+       
 
 
 def get_workflow():
