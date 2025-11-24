@@ -107,10 +107,14 @@ class ActionableSummaryGenerator(Executor):
             prompt = f"{custom_prompt}\n\nYouTube video captions:\n{captions}"
         else:
             prompt = (
-                "Based on the following YouTube video transcript, "
-                "generate a list of actionable insights "
-                "for the viewer.:\n\n"
-                f"{captions}"
+                "Analyze the following YouTube video transcript and extract the most significant actionable insights.\n"
+                "Guidelines:\n"
+                "- Focus on high-impact advice and key takeaways.\n"
+                "- Avoid minor details, obscure examples, or redundant points.\n"
+                "- Consolidate related ideas into a single strong insight.\n"
+                "- Ensure each insight is clear, concise, and directly actionable for the viewer.\n"
+                "- Maintain the chronological order of the insights as they appear in the video.\n\n"
+                f"Transcript:\n{captions}"
             )
 
         agent_response = await self._actionable_insights_agent.run(prompt)
