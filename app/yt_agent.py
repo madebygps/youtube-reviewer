@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 from typing import List, Never
 
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -19,6 +18,7 @@ from models import (
     ActionableInsight,
     GenerateInsightsEvent,
 )
+from utilities import extract_video_id, convert_to_text_with_timestamps
 
 DEFAULT_AZURE_API_VERSION = "2024-02-15-preview"
 
@@ -31,8 +31,6 @@ chat_client = AzureOpenAIChatClient(
     ),
 )
 
-# Custom Workflow Events
-
 
 class CaptionExtractor(Executor):
     def __init__(self, id: str | None = None):
@@ -40,7 +38,6 @@ class CaptionExtractor(Executor):
 
     @handler
     async def handle(self, message: str, ctx: WorkflowContext[str]) -> None:
-
         try:
             data = json.loads(message)
             if isinstance(data, str):
@@ -54,58 +51,28 @@ class CaptionExtractor(Executor):
             custom_prompt = None
 
         # Extract video ID from URL
-        video_id = self._extract_video_id(video_url)
+        video_id = extract_video_id(video_url)
 
-        # Fetch transcript
-        api = YouTubeTranscriptApi()
-        fetched = api.fetch(video_id, ["en"])
-        transcript = fetched.snippets
+        if not video_id:
+            error_payload = {"error": "Invalid URL."}
+            await ctx.send_message(json.dumps(error_payload))
+            return
 
-        # Convert to SRT format
-        srt_captions = self._convert_to_srt(transcript)
+        try:
+            youtube_transcript_api = YouTubeTranscriptApi()
+            transcript = youtube_transcript_api.fetch(video_id, ["en"])
+            formatted_captions = convert_to_text_with_timestamps(transcript)
 
-        payload = {
-            "captions": srt_captions,
-            "custom_prompt": custom_prompt
-        }
+            payload = {
+                "captions": formatted_captions, 
+                "custom_prompt": custom_prompt
+                }
 
-        await ctx.send_message(json.dumps(payload))
-
-    def _extract_video_id(self, url: str) -> str:
-        """Extract video ID from YouTube URL"""
-        patterns = [
-            r"(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)",
-            r"youtube\.com\/embed\/([^&\n?#]+)",
-            r"youtube\.com\/v\/([^&\n?#]+)",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, url)
-            if match:
-                return match.group(1)
-        raise ValueError(f"Could not extract video ID from URL: {url}")
-
-    def _convert_to_srt(self, transcript: list) -> str:
-        """Convert transcript to SRT format"""
-        srt_lines = []
-        for i, entry in enumerate(transcript, 1):
-            start = self._format_timestamp(entry.start)
-            end = self._format_timestamp(entry.start + entry.duration)
-            text = entry.text
-
-            srt_lines.append(f"{i}")
-            srt_lines.append(f"{start} --> {end}")
-            srt_lines.append(text)
-            srt_lines.append("")
-
-        return "\n".join(srt_lines)
-
-    def _format_timestamp(self, seconds: float) -> str:
-        """Format seconds to SRT timestamp format (HH:MM:SS,mmm)"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        millis = int((seconds % 1) * 1000)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+            await ctx.send_message(json.dumps(payload))
+        except Exception as e:
+            logging.error(f"Error fetching transcript: {e}")
+            error_payload = {"error": f"Failed to fetch transcript: {str(e)}"}
+            await ctx.send_message(json.dumps(error_payload))
 
 
 class ActionableSummaryGenerator(Executor):
@@ -140,10 +107,9 @@ class ActionableSummaryGenerator(Executor):
             prompt = f"{custom_prompt}\n\nYouTube video captions:\n{captions}"
         else:
             prompt = (
-                "Based on the following YouTube video captions, "
-                "generate a concise "
-                "summary highlighting key points and actionable "
-                "insights for the content creator:\n\n"
+                "Based on the following YouTube video transcript, "
+                "generate a list of actionable insights "
+                "for the viewer.:\n\n"
                 f"{captions}"
             )
 
@@ -153,17 +119,17 @@ class ActionableSummaryGenerator(Executor):
             insights_payload = agent_response.value
         else:
             logging.error(
-                "Unexpected agent response type: "
-                f"{type(agent_response.value)}"
+                f"Unexpected agent response type: {type(agent_response.value)}"
             )
             empty_insights: List[ActionableInsight] = []
             await ctx.yield_output(empty_insights)
             return
-        
+
         insights = insights_payload.insights
         logging.info(f"Extracted {len(insights)} insights")
         await ctx.add_event(GenerateInsightsEvent(insights_payload))
         await ctx.yield_output(insights)
+
 
 def get_workflow():
     caption_extractor = CaptionExtractor()
