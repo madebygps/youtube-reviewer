@@ -15,7 +15,7 @@ from agent_framework import (
     WorkflowStartedEvent,
 )
 from yt_agent import workflow as yt_workflow
-from models import ActionableInsight
+from models import KeyConceptsResponse
 
 logger = logging.getLogger(name=__name__)
 
@@ -31,13 +31,13 @@ async def health_check():
 @router.websocket("/ws/generateinsights")
 async def websocket_generate_insights(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time insights generation.
+    WebSocket endpoint for real-time deep comprehension notes generation.
     Streams workflow events back to the frontend as they occur.
 
     Protocol:
     1. Client connects and sends JSON: {"video_url": "https://..."}
     2. Server streams events: {"type": "...", "event": "...", "timestamp": "..."}
-    3. Final message: {"type": "completed", "output": [...], "timestamp": "..."}
+    3. Final message: {"type": "completed", "output": {...}, "timestamp": "..."}
     """
     await websocket.accept()
 
@@ -57,18 +57,16 @@ async def websocket_generate_insights(websocket: WebSocket):
             await websocket.close(code=1008, reason="video_url required")
             return
 
-        logger.info(f"🎬 Starting insights generation for video: {video_url}")
+        logger.info(f"🎬 Starting deep comprehension for video: {video_url}")
 
-        # Send initial acknowledgment
         await websocket.send_json(
             {
                 "type": "started",
-                "message": "Insights generation workflow initiated...",
+                "message": "Deep comprehension workflow initiated...",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
 
-        # Run the workflow and stream events
         workflow_output = None
         try:
             async for event in yt_workflow.run_stream(json.dumps(request_data)):
@@ -82,17 +80,9 @@ async def websocket_generate_insights(websocket: WebSocket):
                         "timestamp": now,
                     }
                 elif isinstance(event, WorkflowOutputEvent):
-                    # Capture the workflow output
                     workflow_output = event.data
-                    # Convert insights to dict format
-                    if isinstance(workflow_output, list):
-                        insights_list = []
-                        for item in workflow_output:
-                            if isinstance(item, ActionableInsight):
-                                insights_list.append(item.model_dump())
-                            elif isinstance(item, dict):
-                                insights_list.append(item)
-                        workflow_output = insights_list
+                    if isinstance(workflow_output, KeyConceptsResponse):
+                        workflow_output = workflow_output.model_dump()
 
                     event_data = {
                         "type": "workflow_output",
@@ -120,7 +110,6 @@ async def websocket_generate_insights(websocket: WebSocket):
                 await websocket.send_json(event_data)
                 logger.info(f"📤 Sent event: {event_data['type']}")
 
-            # Send completion message with the workflow output
             await websocket.send_json(
                 {
                     "type": "completed",
@@ -129,7 +118,7 @@ async def websocket_generate_insights(websocket: WebSocket):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
-            logger.info("✅ Insights generation workflow completed")
+            logger.info("✅ Deep comprehension workflow completed")
 
         except Exception as workflow_error:
             logger.error(f"❌ Workflow error: {workflow_error}")

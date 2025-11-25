@@ -2,9 +2,18 @@ import { useState, useRef, useEffect } from 'react'
 import aspireLogo from '/Aspire.png'
 import './App.css'
 
-interface ActionableInsight {
-  description: string
-  timestamp: string
+interface ConceptExplanation {
+  term: string
+  definition: string
+  historical_context?: string
+  how_it_works?: string
+  relevance_to_content: string
+  timestamp?: string
+}
+
+// Phase 1 response - just key concepts
+interface KeyConceptsResponse {
+  key_concepts: ConceptExplanation[]
 }
 
 interface WebSocketEvent {
@@ -12,60 +21,68 @@ interface WebSocketEvent {
   event?: any
   id?: string
   message?: string
-  output?: ActionableInsight[]
+  output?: KeyConceptsResponse
   timestamp: string
 }
 
 function App() {
   const [videoUrl, setVideoUrl] = useState('')
-  const [customPrompt, setCustomPrompt] = useState('')
-  const [insights, setInsights] = useState<ActionableInsight[]>([])
+  const [videoId, setVideoId] = useState<string | null>(null)
+  const [notes, setNotes] = useState<KeyConceptsResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string[]>([])
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+  const [expandedConcepts, setExpandedConcepts] = useState<Set<number>>(new Set())
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['concepts']))
   const wsRef = useRef<WebSocket | null>(null)
 
-  const formatToYouTubeTimestamp = (timestamp: string): string => {
-    // Convert SRT format (HH:MM:SS,mmm) to YouTube format (HH:MM:SS or MM:SS)
-    const parts = timestamp.split(',')
-    const timePart = parts[0] // Get HH:MM:SS part
-    const [hours, minutes, seconds] = timePart.split(':').map(Number)
-    
-    // YouTube format: omit hours if 0, otherwise HH:MM:SS
-    // Round seconds to nearest integer
-    const roundedSeconds = Math.floor(seconds)
-    
-    if (hours === 0) {
-      return `${minutes}:${roundedSeconds.toString().padStart(2, '0')}`
-    }
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${roundedSeconds.toString().padStart(2, '0')}`
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(section)) {
+        next.delete(section)
+      } else {
+        next.add(section)
+      }
+      return next
+    })
   }
 
-  const copyTimestamp = async (timestamp: string, index: number) => {
-    try {
-      const youtubeTimestamp = formatToYouTubeTimestamp(timestamp)
-      await navigator.clipboard.writeText(youtubeTimestamp)
-      setCopiedIndex(index)
-      setTimeout(() => setCopiedIndex(null), 2000)
-    } catch (err) {
-      console.error('Failed to copy timestamp:', err)
+  const extractVideoId = (url: string): string | null => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /youtube\.com\/shorts\/([^&\n?#]+)/,
+    ]
+    for (const pattern of patterns) {
+      const match = url.match(pattern)
+      if (match) return match[1]
     }
+    return null
   }
 
-  const copyAllInsights = async () => {
-    try {
-      const formattedInsights = insights.map((insight) => {
-        const youtubeTimestamp = formatToYouTubeTimestamp(insight.timestamp)
-        return `${youtubeTimestamp} - ${insight.description}`
-      }).join('\n\n')
-      
-      await navigator.clipboard.writeText(formattedInsights)
-      setCopiedIndex(-1) // Use -1 to indicate "Copy All" was clicked
-      setTimeout(() => setCopiedIndex(null), 2000)
-    } catch (err) {
-      console.error('Failed to copy all insights:', err)
-    }
+  const toggleConcept = (index: number) => {
+    setExpandedConcepts(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }
+
+  const copyNotes = async () => {
+    if (!notes) return
+    
+    const formatted = [
+      `# Key Concepts`,
+      ...notes.key_concepts.map(c => 
+        `## ${c.term}\n${c.definition}${c.historical_context ? `\n\n**Historical Context:** ${c.historical_context}` : ''}${c.how_it_works ? `\n\n**How it works:** ${c.how_it_works}` : ''}\n\n**Relevance:** ${c.relevance_to_content}${c.timestamp ? `\n\n**Timestamp:** ${c.timestamp}` : ''}`
+      ),
+    ].join('\n\n')
+
+    await navigator.clipboard.writeText(formatted)
   }
 
   const generateInsights = async () => {
@@ -74,22 +91,26 @@ function App() {
       return
     }
 
+    const extractedId = extractVideoId(videoUrl)
+    if (!extractedId) {
+      setError('Invalid YouTube URL')
+      return
+    }
+
+    setVideoId(extractedId)
     setLoading(true)
     setError(null)
-    setInsights([])
+    setNotes(null)
     setProgress([])
+    setExpandedConcepts(new Set())
 
     try {
-      // Use relative path which will be proxied by Vite
       const ws = new WebSocket(`ws://${window.location.host}/ws/generateinsights`)
       wsRef.current = ws
 
       ws.onopen = () => {
         setProgress(prev => [...prev, '🔌 Connected to server...'])
-        ws.send(JSON.stringify({ 
-          video_url: videoUrl,
-          custom_prompt: customPrompt.trim() || undefined
-        }))
+        ws.send(JSON.stringify({ video_url: videoUrl }))
       }
 
       ws.onmessage = (event) => {
@@ -105,25 +126,25 @@ function App() {
           case 'step_started':
             const startMsg = data.id === 'caption_extractor' 
               ? '📹 Downloading captions from YouTube...'
-              : data.id === 'actionable_summary_generator'
-              ? '🤖 Generating actionable insights with AI...'
+              : data.id === 'key_concepts_extractor'
+              ? '🧠 Extracting key concepts with AI...'
               : `Starting: ${data.id}`
             setProgress(prev => [...prev, startMsg])
             break
           case 'step_completed':
             const completeMsg = data.id === 'caption_extractor'
               ? '✅ Captions extracted successfully'
-              : data.id === 'actionable_summary_generator'
-              ? '✅ AI analysis complete'
+              : data.id === 'key_concepts_extractor'
+              ? '✅ Key concepts extracted'
               : `Completed: ${data.id}`
             setProgress(prev => [...prev, completeMsg])
             break
           case 'workflow_output':
           case 'completed':
             if (data.output) {
-              setInsights(data.output)
+              setNotes(data.output)
             }
-            setProgress(prev => [...prev, `🎉 Generated ${data.output?.length || 0} actionable insights!`])
+            setProgress(prev => [...prev, `🎉 Phase 1 complete - Key concepts ready!`])
             setLoading(false)
             break
           case 'error':
@@ -190,170 +211,156 @@ function App() {
         >
           <img src={aspireLogo} className="logo" alt="Aspire logo" />
         </a>
-        <h1 className="app-title">YouTube Insights</h1>
-        <p className="app-subtitle">Generate actionable insights from YouTube videos</p>
+        
+        <form onSubmit={handleSubmit} className="header-form">
+          <input
+            id="video-url"
+            type="text"
+            className="header-input"
+            placeholder="Paste YouTube URL..."
+            value={videoUrl}
+            onChange={(e) => setVideoUrl(e.target.value)}
+            disabled={loading}
+          />
+          <button 
+            type="submit"
+            className="header-submit"
+            disabled={loading || !videoUrl.trim()}
+            title="Generate Study Notes"
+          >
+            {loading ? '⏳' : '🧠'}
+          </button>
+          {loading && (
+            <button 
+              type="button"
+              className="header-cancel"
+              onClick={cancelWebSocket}
+              title="Cancel"
+            >
+              ✕
+            </button>
+          )}
+        </form>
+
+        <span className="app-title">YouTube Deep Comprehension</span>
       </header>
 
+      {error && (
+        <div className="error-banner" role="alert" aria-live="polite">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="error-dismiss">✕</button>
+        </div>
+      )}
+
       <main className="main-content">
-        <section className="weather-section" aria-labelledby="insights-heading">
-          <div className="card">
-            <div className="section-header">
-              <h2 id="insights-heading" className="section-title">Video Insights Generator</h2>
-            </div>
-
-            <form onSubmit={handleSubmit} className="url-form">
-              <div className="form-group">
-                <label htmlFor="video-url" className="form-label">
-                  YouTube Video URL
-                </label>
-                <input
-                  id="video-url"
-                  type="text"
-                  className="form-input"
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  disabled={loading}
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="custom-prompt" className="form-label">
-                  Custom Prompt (Optional)
-                </label>
-                <textarea
-                  id="custom-prompt"
-                  className="form-input"
-                  placeholder="Enter a custom prompt for insight generation (e.g., 'Extract all technical concepts mentioned' or 'Identify marketing strategies discussed')..."
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  disabled={loading}
-                  rows={4}
-                  style={{ resize: 'vertical', fontFamily: 'inherit' }}
-                />
-                <p className="form-help-text">
-                  Leave blank to use the default prompt. Custom prompts help tailor insights to your specific needs.
-                </p>
-              </div>
-              <div className="form-actions">
-                <button 
-                  type="submit"
-                  className="submit-button"
-                  disabled={loading || !videoUrl.trim()}
-                >
-                  {loading ? '⏳ Generating Insights...' : '🚀 Generate Insights'}
-                </button>
-                {loading && (
-                  <button 
-                    type="button"
-                    className="cancel-button"
-                    onClick={cancelWebSocket}
-                  >
-                    ❌ Cancel
-                  </button>
-                )}
-              </div>
-            </form>
-            
-            {error && (
-              <div className="error-message" role="alert" aria-live="polite">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="12" y1="8" x2="12" y2="12"/>
-                  <line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-                <span>{error}</span>
-              </div>
-            )}
-
-            {progress.length > 0 && (
-              <div className="progress-section">
-                <h3 className="progress-title">📊 Progress</h3>
-                <div className="progress-log">
-                  {progress.map((msg, idx) => (
-                    <div key={idx} className="progress-item">
-                      <span>{msg}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {loading && (
-              <div className="loading-skeleton" role="status" aria-live="polite" aria-label="Generating insights">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="skeleton-row" aria-hidden="true" />
+        {/* Loading/Progress State */}
+        {loading && (
+          <div className="loading-overlay">
+            <div className="loading-content">
+              <div className="loading-spinner"></div>
+              <div className="progress-compact">
+                {progress.slice(-3).map((msg, idx) => (
+                  <div key={idx} className="progress-item-compact">{msg}</div>
                 ))}
-                <span className="visually-hidden">Generating insights...</span>
               </div>
-            )}
-            
-            {insights.length > 0 && (
-              <div className="insights-container">
-                <div className="insights-header">
-                  <h3 className="insights-title">Actionable Insights ({insights.length})</h3>
-                  <button
-                    className="copy-all-button"
-                    onClick={copyAllInsights}
-                    title="Copy all insights with timestamps"
-                    aria-label="Copy all insights"
-                  >
-                    {copiedIndex === -1 ? (
-                      <>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
+            </div>
+          </div>
+        )}
+
+        {/* Video + Notes Split View */}
+        {(videoId || notes) && (
+          <section className="study-section">
+            <div className="study-layout">
+              {/* Video Player - Sticky */}
+              {videoId && (
+                <div className="video-panel">
+                  <div className="video-container">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${videoId}`}
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Notes Panel - Scrollable */}
+              {notes && (
+                <div className="notes-panel">
+                  <div className="notes-container">
+                    <div className="notes-header">
+                      <h3 className="notes-title">📚 Phase 1: Key Concepts</h3>
+                      <button className="copy-all-button" onClick={copyNotes} title="Copy all notes as Markdown">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                         </svg>
-                        <span>Copy All</span>
-                      </>
-                    )}
-                  </button>
+                      </button>
+                    </div>
+
+                    {/* Phase indicator */}
+                    <div className="phase-indicator">
+                      <span className="phase-badge phase-active">Phase 1: Orient</span>
+                      <span className="phase-badge phase-upcoming">Phase 2: Understand</span>
+                      <span className="phase-badge phase-upcoming">Phase 3: Connect</span>
+                      <span className="phase-badge phase-upcoming">Phase 4: Test</span>
+                    </div>
+
+                    <p className="phase-instruction">
+                      Watch the video with these key concepts in mind. When ready, you'll be able to proceed to deeper analysis.
+                    </p>
+
+                    {/* Key Concepts */}
+                    <div className="notes-section">
+                      <button className="section-toggle" onClick={() => toggleSection('concepts')} aria-expanded={expandedSections.has('concepts')}>
+                        <span>📖 Key Concepts ({notes.key_concepts.length})</span>
+                        <span className={`expand-icon ${expandedSections.has('concepts') ? 'expanded' : ''}`}>▼</span>
+                      </button>
+                      {expandedSections.has('concepts') && (
+                        <div className="concepts-list">
+                          {notes.key_concepts.map((concept, index) => (
+                            <div key={index} className="concept-card">
+                              <button 
+                                className="concept-header"
+                                onClick={() => toggleConcept(index)}
+                                aria-expanded={expandedConcepts.has(index)}
+                              >
+                                <span className="concept-term">{concept.term}</span>
+                                {concept.timestamp && <span className="concept-timestamp">{concept.timestamp}</span>}
+                                <span className={`expand-icon ${expandedConcepts.has(index) ? 'expanded' : ''}`}>▼</span>
+                              </button>
+                              {expandedConcepts.has(index) && (
+                                <div className="concept-details">
+                                  <p className="concept-definition"><strong>Definition:</strong> {concept.definition}</p>
+                                  {concept.historical_context && (
+                                    <p className="concept-history"><strong>Historical Context:</strong> {concept.historical_context}</p>
+                                  )}
+                                  {concept.how_it_works && (
+                                    <p className="concept-mechanics"><strong>How it works:</strong> {concept.how_it_works}</p>
+                                  )}
+                                  <p className="concept-relevance"><strong>Relevance:</strong> {concept.relevance_to_content}</p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Future: Button to proceed to Phase 2 */}
+                    <div className="phase-actions">
+                      <button className="phase-next-button" disabled title="Coming soon: Proceed to deeper analysis">
+                        I've watched the video - Go Deeper →
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <ul className="insights-list">
-                  {insights.map((insight, index) => {
-                    const youtubeTimestamp = formatToYouTubeTimestamp(insight.timestamp)
-                    return (
-                      <li key={index} className="insight-item">
-                        <div className="insight-content">
-                          <span className="insight-number">#{index + 1}</span>
-                          <div className="insight-text">
-                            <p className="insight-description">{insight.description}</p>
-                          </div>
-                        </div>
-                        <div className="insight-actions">
-                          <span className="insight-timestamp">{youtubeTimestamp}</span>
-                          <button
-                            className="copy-button"
-                            onClick={() => copyTimestamp(insight.timestamp, index)}
-                            title="Copy timestamp"
-                            aria-label={`Copy timestamp ${youtubeTimestamp}`}
-                          >
-                            {copiedIndex === index ? (
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <polyline points="20 6 9 17 4 12"></polyline>
-                              </svg>
-                            ) : (
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                              </svg>
-                            )}
-                          </button>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
-        </section>
+              )}
+            </div>
+          </section>
+        )}
       </main>
 
       <footer className="app-footer">
