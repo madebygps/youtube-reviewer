@@ -66,9 +66,9 @@ class ThesisArgumentResponse(BaseModel):
 class KeyConceptsResponse(BaseModel):
     """Phase 1: Key concepts extracted from video content."""
     key_concepts: List[ConceptExplanation]
-    captions: Optional[str] = Field(
+    video_id: Optional[str] = Field(
         default=None,
-        description="Original captions text used to generate concepts (for subsequent phases)",
+        description="Video ID for cache lookup in subsequent phases",
     )
 
 class ClaimVerifierResponse(BaseModel):

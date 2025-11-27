@@ -2,7 +2,6 @@
 
 import fastapi
 import json
-import asyncio
 import contextlib
 from datetime import datetime, timezone
 import logging
@@ -19,12 +18,11 @@ from agent_framework import (
 )
 from workflows import key_concepts_workflow, thesis_argument_workflow
 from models import KeyConceptsResponse, ThesisArgumentResponse
-from utilities import extract_video_id, fetch_transcript, convert_to_text_with_timestamps
 
-logger = logging.getLogger(name=__name__)
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
-
 
 def _timestamp() -> str:
     """Return current UTC timestamp in ISO format."""
@@ -152,7 +150,7 @@ async def websocket_phase1(websocket: WebSocket):
         def process_output(output):
             if isinstance(output, KeyConceptsResponse):
                 result = output.model_dump()
-                result["captions"] = output.captions  # Include captions for Phase 2
+                result["video_id"] = output.video_id  # Include video_id for Phase 2 cache lookup
                 return result
             return output
 
@@ -204,25 +202,12 @@ async def websocket_phase2(websocket: WebSocket):
         initial_text = await websocket.receive_text()
         request_data = json.loads(initial_text)
 
-        captions = request_data.get("captions") if isinstance(request_data, dict) else None
+        video_id = request_data.get("video_id") if isinstance(request_data, dict) else None
         
-        # If no captions provided, try to fetch from video_url
-        if not captions:
-            video_url = request_data.get("video_url") if isinstance(request_data, dict) else None
-            if not video_url:
-                await _send_error(websocket, "Either 'captions' or 'video_url' is required")
-                await websocket.close(code=1008, reason="captions or video_url required")
-                return
-            
-            logger.info(f"📥 Fetching captions for Phase 2 from: {video_url}")
-            video_id = extract_video_id(video_url)
-            if not video_id:
-                await _send_error(websocket, "Invalid video URL")
-                await websocket.close(code=1008, reason="Invalid video URL")
-                return
-            
-            transcript = await asyncio.to_thread(fetch_transcript, video_id, ["en"])
-            captions = convert_to_text_with_timestamps(transcript)
+        if not video_id:
+            await _send_error(websocket, "video_id is required")
+            await websocket.close(code=1008, reason="video_id required")
+            return
 
         logger.info("🎬 Starting Phase 2")
 
@@ -242,7 +227,7 @@ async def websocket_phase2(websocket: WebSocket):
             workflow_output = await _stream_workflow_events(
                 websocket=websocket,
                 workflow=thesis_argument_workflow,
-                input_data=json.dumps({"captions": captions}),
+                input_data=json.dumps({"video_id": video_id}),
                 phase=2,
                 output_processor=process_output,
             )
@@ -275,6 +260,7 @@ async def websocket_phase2(websocket: WebSocket):
 @router.get("/", response_class=fastapi.responses.HTMLResponse)
 async def root():
     """Root endpoint."""
+    logger.info("Root endpoint called")
     return """
     <html>
         <head><title>YouTube Reviewer API</title></head>
