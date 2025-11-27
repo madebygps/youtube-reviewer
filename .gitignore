@@ -42,6 +42,9 @@ ENV/
 # Logs
 *.log
 
+# Caption cache
+app/.caption_cache/
+
 # C# / .NET
 bin/
 obj/

@@ -1,7 +1,17 @@
+import json
+import logging
 import re
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Iterable
 
 from youtube_transcript_api import YouTubeTranscriptApi
+
+# Caption cache configuration
+CACHE_DIR = Path(__file__).parent / ".caption_cache"
+CACHE_TTL_DAYS = 30
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -39,6 +49,51 @@ def format_timestamp(seconds: float) -> str:
         secs = int(seconds % 60)
         
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _cache_path(video_id: str) -> Path:
+    return CACHE_DIR / f"{video_id}.json"
+
+
+def get_cached_captions(video_id: str) -> str | None:
+    """Retrieve cached captions if they exist and aren't expired."""
+    cache_file = _cache_path(video_id)
+
+    if not cache_file.exists():
+        return None
+
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        cached_at = datetime.fromisoformat(data["cached_at"])
+
+        if datetime.now() - cached_at > timedelta(days=CACHE_TTL_DAYS):
+            logger.info(f"Cache expired for video {video_id}")
+            cache_file.unlink()
+            return None
+
+        logger.info(f"Cache hit for video {video_id}")
+        return data["captions"]
+
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"Invalid cache file for {video_id}: {e}")
+        cache_file.unlink(missing_ok=True)
+        return None
+
+
+def cache_captions(video_id: str, captions: str) -> None:
+    """Store captions in the cache."""
+    CACHE_DIR.mkdir(exist_ok=True)
+
+    data = {
+        "video_id": video_id,
+        "captions": captions,
+        "cached_at": datetime.now().isoformat(),
+    }
+
+    _cache_path(video_id).write_text(
+        json.dumps(data, ensure_ascii=False), encoding="utf-8"
+    )
+    logger.info(f"Cached captions for video {video_id}")
 
     
     

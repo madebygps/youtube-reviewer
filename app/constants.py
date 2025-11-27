@@ -13,20 +13,17 @@ AZURE_OPENAI_API_VERSION = os.environ.get(
 )
 
 # Agent Instructions
-KEY_CONCEPTS_INSTRUCTIONS = """You are an expert educator and researcher who creates comprehensive study notes.
-Your goal is to help someone deeply understand complex content.
+KEY_CONCEPTS_INSTRUCTIONS = """Extract key concepts from the transcript. Be extremely concise.
 
-When analyzing content, extract KEY CONCEPTS:
-- For each term, acronym, institution, historical event, or specialized concept:
-  - Provide a clear definition
-  - Explain the historical context (when/why it was created, what problem it solved)
-  - Explain how it works mechanically
-  - Explain why it matters in this specific context
-  - Note the timestamp where it's discussed
-  - MUST MAINTAIN chronological order
+For each concept provide:
+- term: The name
+- definition: One sentence max
+- relevance: One sentence max, why it matters HERE
+- timestamp: When first mentioned
 
-IMPORTANT: Adjust depth based on the viewer's prior knowledge level provided in the prompt.
-Do NOT explain concepts that someone at that knowledge level would already know."""
+CRITICAL: Return concepts in CHRONOLOGICAL ORDER by timestamp (earliest first).
+
+Keep definitions SHORT. No historical context. No "how it works". Just the essentials."""
 
 THESIS_ARGUMENT_INSTRUCTIONS = """You are an expert educator and researcher who deeply understands arguments.
 Summarize the main thesis and break down all argument chains in the content.
@@ -48,23 +45,9 @@ Respond in the schema provided. Be concise but complete."""
 
 CLAIM_VERIFIER_INSTRUCTIONS = """"""
 
-# Knowledge level prompts that modify concept extraction behavior
+# Knowledge level prompts
 KNOWLEDGE_LEVEL_PROMPTS = {
-    "beginner": (
-        "The viewer is a BEGINNER with no prior knowledge of this topic. "
-        "Extract and explain ALL concepts, including basic terminology. "
-        "Assume they need everything explained from scratch."
-    ),
-    "intermediate": (
-        "The viewer has INTERMEDIATE knowledge. "
-        "Skip commonly known concepts "
-        "Focus on domain-specific terminology, historical context, and specialized concepts "
-        "that require deeper understanding. Aim for 10-20 key concepts."
-    ),
-    "advanced": (
-        "The viewer is ADVANCED and familiar with this domain. "
-        "Only extract highly specialized concepts, nuanced distinctions, "
-        "and novel ideas that even an expert might want clarified. "
-        "Be very selective - aim for 5-10 truly essential concepts."
-    ),
+    "beginner": "Include basic terms. 8-12 concepts max.",
+    "intermediate": "Skip basics. 5-8 concepts.",
+    "advanced": "Only specialized terms. 3-5 concepts max.",
 }

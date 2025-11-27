@@ -5,9 +5,7 @@ import './App.css'
 interface ConceptExplanation {
   term: string
   definition: string
-  historical_context?: string
-  how_it_works?: string
-  relevance_to_content: string
+  relevance: string
   timestamp?: string
 }
 
@@ -22,7 +20,6 @@ interface ArgumentChain {
 // Phase 1 response - just key concepts
 interface KeyConceptsResponse {
   key_concepts: ConceptExplanation[]
-  captions?: string | null
 }
 
 // Phase 2 response - thesis + arguments
@@ -57,12 +54,13 @@ function App() {
   const [loadingPhase, setLoadingPhase] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string[]>([])
+  const [progressPercent, setProgressPercent] = useState(0)
+  const [progressStep, setProgressStep] = useState<string>('')
   const [expandedConcepts, setExpandedConcepts] = useState<Set<number>>(new Set())
   const [expandedArguments, setExpandedArguments] = useState<Set<number>>(new Set())
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['concepts']))
   const [activePhase, setActivePhase] = useState<number>(1)
   const [knowledgeLevel, setKnowledgeLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate')
-  const [captions, setCaptions] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   const toggleSection = (section: string) => {
@@ -116,7 +114,7 @@ function App() {
     const formatted = [
       `# Key Concepts`,
       ...notes.key_concepts.map(c => 
-        `## ${c.term}\n${c.definition}${c.historical_context ? `\n\n**Historical Context:** ${c.historical_context}` : ''}${c.how_it_works ? `\n\n**How it works:** ${c.how_it_works}` : ''}\n\n**Relevance:** ${c.relevance_to_content}${c.timestamp ? `\n\n**Timestamp:** ${c.timestamp}` : ''}`
+        `## ${c.term}\n${c.definition}\n\n**Relevance:** ${c.relevance}${c.timestamp ? ` (${c.timestamp})` : ''}`
       ),
     ].join('\n\n')
 
@@ -142,10 +140,11 @@ function App() {
     setNotes(null)
     setPhase2(null)
     setProgress([])
+    setProgressPercent(0)
+    setProgressStep('')
     setExpandedConcepts(new Set())
     setExpandedArguments(new Set())
     setActivePhase(1)
-    setCaptions(null)
 
     try {
       const ws = new WebSocket(`ws://${window.location.host}/ws/phase1`)
@@ -153,6 +152,8 @@ function App() {
 
       ws.onopen = () => {
         setProgress(prev => [...prev, '🔌 Connected to server...'])
+        setProgressPercent(5)
+        setProgressStep('Connecting...')
         ws.send(JSON.stringify({ video_url: videoUrl, knowledge_level: knowledgeLevel }))
       }
 
@@ -162,9 +163,13 @@ function App() {
         switch (data.type) {
           case 'started':
             setProgress(prev => [...prev, `🚀 ${data.message || 'Workflow started'}`])
+            setProgressPercent(10)
+            setProgressStep('Starting workflow...')
             break
           case 'workflow_started':
             setProgress(prev => [...prev, '📝 Extracting video captions...'])
+            setProgressPercent(15)
+            setProgressStep('Initializing...')
             break
           case 'step_started':
             const startMsg = data.id === 'caption_extractor' 
@@ -173,6 +178,13 @@ function App() {
               ? '🧠 Extracting key concepts with AI...'
               : `Starting: ${data.id}`
             setProgress(prev => [...prev, startMsg])
+            if (data.id === 'caption_extractor') {
+              setProgressPercent(25)
+              setProgressStep('Downloading captions...')
+            } else if (data.id === 'key_concepts_extractor') {
+              setProgressPercent(50)
+              setProgressStep('AI analyzing content...')
+            }
             break
           case 'step_completed':
             const completeMsg = data.id === 'caption_extractor'
@@ -181,33 +193,36 @@ function App() {
               ? '✅ Key concepts extracted'
               : `Completed: ${data.id}`
             setProgress(prev => [...prev, completeMsg])
+            if (data.id === 'caption_extractor') {
+              setProgressPercent(45)
+              setProgressStep('Captions ready!')
+            } else if (data.id === 'key_concepts_extractor') {
+              setProgressPercent(95)
+              setProgressStep('Almost done...')
+            }
             break
           case 'workflow_output':
           case 'completed':
             if (data.event) {
               setNotes(data.event)
-              // Store captions for Phase 2
-              if (data.event.captions) {
-                setCaptions(data.event.captions)
-              }
             }
             break
           case 'phase_completed':
             if (data.phase === 1) {
               if (data.output) {
                 setNotes(data.output as KeyConceptsResponse)
-                // Store captions for Phase 2
-                if ((data.output as any).captions) {
-                  setCaptions((data.output as any).captions)
-                }
               }
               setActivePhase(1)
               setProgress(prev => [...prev, '🎉 Phase 1 complete - Key concepts ready!'])
+              setProgressPercent(100)
+              setProgressStep('Complete!')
               setLoading(false)
               setLoadingPhase(null)
             }
             if (data.phase === 2) {
               setProgress(prev => [...prev, '🎉 Phase 2 complete - Thesis & arguments ready!'])
+              setProgressPercent(100)
+              setProgressStep('Complete!')
               setLoadingPhase(null)
             }
             break
@@ -275,14 +290,16 @@ function App() {
   }
 
   const startPhase2 = () => {
-    if (!captions) {
-      setError('No captions available. Please run Phase 1 first.')
+    if (!videoId) {
+      setError('No video ID available. Please run Phase 1 first.')
       return
     }
 
     setLoadingPhase(2)
     setActivePhase(2)
     setProgress(prev => [...prev, '➡️ Starting Phase 2...'])
+    setProgressPercent(0)
+    setProgressStep('Starting Phase 2...')
 
     try {
       const ws = new WebSocket(`ws://${window.location.host}/ws/phase2`)
@@ -290,7 +307,9 @@ function App() {
 
       ws.onopen = () => {
         setProgress(prev => [...prev, '🔌 Connected to Phase 2...'])
-        ws.send(JSON.stringify({ captions }))
+        setProgressPercent(10)
+        setProgressStep('Connecting...')
+        ws.send(JSON.stringify({ video_id: videoId }))
       }
 
       ws.onmessage = (event) => {
@@ -299,22 +318,30 @@ function App() {
         switch (data.type) {
           case 'phase_started':
             setProgress(prev => [...prev, '🧠 Extracting thesis & arguments...'])
+            setProgressPercent(25)
+            setProgressStep('Analyzing...')
             break
           case 'step_started':
             const startMsg = data.id === 'thesis_argument_extractor'
               ? '🧠 Analyzing argument chains...'
               : `Starting: ${data.id}`
             setProgress(prev => [...prev, startMsg])
+            setProgressPercent(50)
+            setProgressStep('AI analyzing arguments...')
             break
           case 'workflow_output':
             if (data.event) {
               setPhase2(data.event as ThesisArgumentResponse)
               setExpandedSections(new Set(['thesis']))
+              setProgressPercent(90)
+              setProgressStep('Processing results...')
               setProgress(prev => [...prev, '📝 Thesis & argument chains received'])
             }
             break
           case 'phase_completed':
             setProgress(prev => [...prev, '🎉 Phase 2 complete - Thesis & arguments ready!'])
+            setProgressPercent(100)
+            setProgressStep('Complete!')
             setLoadingPhase(null)
             break
           case 'error':
@@ -419,20 +446,6 @@ function App() {
       )}
 
       <main className="main-content">
-        {/* Loading/Progress State */}
-        {(loading || loadingPhase !== null) && (
-          <div className="loading-overlay">
-            <div className="loading-content">
-              <div className="loading-spinner"></div>
-              <div className="progress-compact">
-                {progress.slice(-3).map((msg, idx) => (
-                  <div key={idx} className="progress-item-compact">{msg}</div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Video + Notes Split View */}
         {(videoId || notes) && (
           <section className="study-section">
@@ -453,17 +466,19 @@ function App() {
               )}
 
               {/* Notes Panel - Scrollable */}
-              {notes && (
+              {videoId && (
                 <div className="notes-panel">
                   <div className="notes-container">
                     <div className="notes-header">
                       <h3 className="notes-title">📚 Phase 1: Key Concepts</h3>
-                      <button className="copy-all-button" onClick={copyNotes} title="Copy all notes as Markdown">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                        </svg>
-                      </button>
+                      {notes && (
+                        <button className="copy-all-button" onClick={copyNotes} title="Copy all notes as Markdown">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                        </button>
+                      )}
                     </div>
 
                     {/* Phase indicator */}
@@ -481,49 +496,61 @@ function App() {
                     {/* Key Concepts */}
                     <div className="notes-section">
                       <button className="section-toggle" onClick={() => toggleSection('concepts')} aria-expanded={expandedSections.has('concepts')}>
-                        <span>📖 Key Concepts ({notes.key_concepts.length})</span>
+                        <span>📖 Key Concepts {notes ? `(${notes.key_concepts.length})` : ''}</span>
                         <span className={`expand-icon ${expandedSections.has('concepts') ? 'expanded' : ''}`}>▼</span>
                       </button>
                       {expandedSections.has('concepts') && (
                         <div className="concepts-list">
-                          {notes.key_concepts.map((concept, index) => (
-                            <div key={index} className="concept-card">
-                              <button 
-                                className="concept-header"
-                                onClick={() => toggleConcept(index)}
-                                aria-expanded={expandedConcepts.has(index)}
-                              >
-                                <span className="concept-term">{concept.term}</span>
-                                {concept.timestamp && <span className="concept-timestamp">{concept.timestamp}</span>}
-                                <span className={`expand-icon ${expandedConcepts.has(index) ? 'expanded' : ''}`}>▼</span>
-                              </button>
-                              {expandedConcepts.has(index) && (
-                                <div className="concept-details">
-                                  <p className="concept-definition"><strong>Definition:</strong> {concept.definition}</p>
-                                  {concept.historical_context && (
-                                    <p className="concept-history"><strong>Historical Context:</strong> {concept.historical_context}</p>
-                                  )}
-                                  {concept.how_it_works && (
-                                    <p className="concept-mechanics"><strong>How it works:</strong> {concept.how_it_works}</p>
-                                  )}
-                                  <p className="concept-relevance"><strong>Relevance:</strong> {concept.relevance_to_content}</p>
+                          {!notes ? (
+                            /* Loading skeleton */
+                            <div className="concepts-loading">
+                              <div className="progress-bar-container">
+                                <div className="progress-bar-track">
+                                  <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }} />
                                 </div>
-                              )}
+                                <span className="progress-percent">{progressPercent}%</span>
+                              </div>
+                              <div className="progress-step">{progressStep}</div>
+                              {[1, 2, 3].map(i => (
+                                <div key={i} className="concept-card skeleton">
+                                  <div className="skeleton-line" style={{ width: '60%' }}></div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          ) : (
+                            notes.key_concepts.map((concept, index) => (
+                              <div key={index} className="concept-card">
+                                <button 
+                                  className="concept-header"
+                                  onClick={() => toggleConcept(index)}
+                                  aria-expanded={expandedConcepts.has(index)}
+                                >
+                                  <span className="concept-term">{concept.term}</span>
+                                  {concept.timestamp && <span className="concept-timestamp">{concept.timestamp}</span>}
+                                  <span className={`expand-icon ${expandedConcepts.has(index) ? 'expanded' : ''}`}>▼</span>
+                                </button>
+                                {expandedConcepts.has(index) && (
+                                  <div className="concept-details">
+                                    <p className="concept-definition"><strong>Definition:</strong> {concept.definition}</p>
+                                    <p className="concept-relevance"><strong>Relevance:</strong> {concept.relevance}</p>
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
                         </div>
                       )}
                     </div>
 
                     {/* Proceed to Phase 2 */}
-                    {!phase2 && (
+                    {!phase2 && notes && (
                     <div className="phase-actions">
                       <button 
                         className="phase-next-button"
-                        disabled={!notes || !captions || loadingPhase === 2}
+                        disabled={!notes || !videoId || loadingPhase === 2}
                         onClick={startPhase2}
                       >
-                        {loadingPhase === 2 ? '⏳ Phase 2 running...' : "I've watched the video - Go Deeper →"}
+                        {loadingPhase === 2 ? '⏳ Analyzing...' : 'Move to analysis phase →'}
                       </button>
                     </div>
                     )}

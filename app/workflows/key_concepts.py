@@ -14,7 +14,11 @@ from agent_framework import (
 from chat_client import chat_client
 from constants import KEY_CONCEPTS_INSTRUCTIONS, KNOWLEDGE_LEVEL_PROMPTS
 from models import KeyConceptsResponse
-from utilities import extract_video_id, convert_to_text_with_timestamps, fetch_transcript
+from utilities import (
+    extract_video_id,
+    convert_to_text_with_timestamps,
+    fetch_transcript,
+)
 
 
 class CaptionExtractor(Executor):
@@ -26,7 +30,11 @@ class CaptionExtractor(Executor):
         try:
             data = json.loads(message)
             video_url = data.get("video_url") if isinstance(data, dict) else data
-            knowledge_level = data.get("knowledge_level", "beginner") if isinstance(data, dict) else "beginner"
+            knowledge_level = (
+                data.get("knowledge_level", "beginner")
+                if isinstance(data, dict)
+                else "beginner"
+            )
         except json.JSONDecodeError:
             video_url = message.strip()
             knowledge_level = "beginner"
@@ -42,13 +50,16 @@ class CaptionExtractor(Executor):
             formatted_captions = convert_to_text_with_timestamps(transcript)
 
             # Pass captions and knowledge_level to next executor
-            await ctx.send_message(json.dumps({
-                "captions": formatted_captions,
-                "knowledge_level": knowledge_level
-            }))
+            await ctx.send_message(
+                json.dumps(
+                    {"captions": formatted_captions, "knowledge_level": knowledge_level}
+                )
+            )
         except Exception as e:
             logging.error(f"Error fetching transcript: {e}")
-            await ctx.send_message(json.dumps({"error": f"Failed to fetch transcript: {e}"}))
+            await ctx.send_message(
+                json.dumps({"error": f"Failed to fetch transcript: {e}"})
+            )
 
 
 class KeyConceptsExtractor(Executor):
@@ -66,23 +77,23 @@ class KeyConceptsExtractor(Executor):
         try:
             data = json.loads(message)
             captions = data.get("captions") if isinstance(data, dict) else data
-            knowledge_level = data.get("knowledge_level", "beginner") if isinstance(data, dict) else "beginner"
+            knowledge_level = (
+                data.get("knowledge_level", "beginner")
+                if isinstance(data, dict)
+                else "beginner"
+            )
         except json.JSONDecodeError:
             captions = message.strip()
             knowledge_level = "beginner"
 
         # Get the appropriate knowledge level guidance
-        level_guidance = KNOWLEDGE_LEVEL_PROMPTS.get(knowledge_level, KNOWLEDGE_LEVEL_PROMPTS["beginner"])
+        level_guidance = KNOWLEDGE_LEVEL_PROMPTS.get(
+            knowledge_level, KNOWLEDGE_LEVEL_PROMPTS["beginner"]
+        )
 
         prompt = (
             f"VIEWER KNOWLEDGE LEVEL: {level_guidance}\n\n"
-            "Extract and explain key concepts from the following YouTube video transcript.\n\n"
-            "For each concept worth explaining at this knowledge level:\n"
-            "- Provide a clear definition\n"
-            "- Explain the historical context (when/why it was created)\n"
-            "- Explain how it works\n"
-            "- Explain why it matters in this context\n"
-            "- Note the timestamp where it's discussed\n\n"
+            "Extract key concepts from the following YouTube video transcript.\n\n"
             f"Transcript:\n{captions}"
         )
 

@@ -3,32 +3,12 @@ from pydantic import BaseModel, Field
 
 
 class ConceptExplanation(BaseModel):
-    """A key concept that needs explanation for full comprehension."""
+    """A key concept from the video."""
 
-    term: str = Field(
-        ...,
-        description="The term, acronym, or concept name (e.g., 'ESF', 'SDRs', 'Bretton Woods')",
-    )
-    definition: str = Field(
-        ...,
-        description="A clear, concise definition of the concept",
-    )
-    historical_context: Optional[str] = Field(
-        None,
-        description="When/why this was created, what problem it solved",
-    )
-    how_it_works: Optional[str] = Field(
-        None,
-        description="Explanation of the mechanism or process",
-    )
-    relevance_to_content: str = Field(
-        ...,
-        description="Why this concept matters in the context of the video's argument",
-    )
-    timestamp: Optional[str] = Field(
-        None,
-        description="Timestamp where this concept is first discussed",
-    )
+    term: str = Field(..., description="Concept name")
+    definition: str = Field(..., description="One sentence definition")
+    relevance: str = Field(..., description="One sentence: why it matters in this video")
+    timestamp: Optional[str] = Field(None, description="e.g. '5:30'")
 
 
 class ArgumentChain(BaseModel):

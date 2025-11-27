@@ -256,13 +256,73 @@
 
 .loading-content {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1.25rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
   background: var(--card-bg);
   border: 1px solid var(--weather-card-border);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  min-width: 320px;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.progress-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--weather-card-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end));
+  border-radius: 4px;
+  transition: width 0.3s ease-out;
+  position: relative;
+}
+
+.progress-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.progress-percent {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent-gradient-start);
+  min-width: 40px;
+  text-align: right;
+}
+
+.progress-step {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: center;
 }
 
 .loading-spinner {
@@ -1825,8 +1885,44 @@
 
 .phase-actions {
   margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--divider-color);
+}
+
+/* Loading skeleton for concepts */
+.concepts-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.concepts-loading .progress-bar-container {
+  margin-bottom: 0.5rem;
+}
+
+.concepts-loading .progress-step {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.concept-card.skeleton {
+  padding: 1rem;
+  background: var(--weather-card-bg);
+  border-radius: 0.5rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-line {
+  height: 1rem;
+  background: linear-gradient(90deg, var(--skeleton-bg-1) 25%, var(--skeleton-bg-2) 50%, var(--skeleton-bg-1) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .phase-next-button {

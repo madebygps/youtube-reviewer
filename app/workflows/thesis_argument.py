@@ -13,6 +13,7 @@ from agent_framework import (
 from chat_client import chat_client
 from constants import THESIS_ARGUMENT_INSTRUCTIONS
 from models import ThesisArgumentResponse
+from utilities import get_cached_captions
 
 
 class ThesisArgumentExtractor(Executor):
@@ -27,17 +28,15 @@ class ThesisArgumentExtractor(Executor):
     async def handle(
         self, message: str, ctx: WorkflowContext[None, ThesisArgumentResponse]
     ) -> None:
-        try:
-            data = json.loads(message)
-            captions = data.get("captions") if isinstance(data, dict) else data
-        except json.JSONDecodeError:
-            captions = message.strip()
+        data = json.loads(message)
+        video_id = data["video_id"]
 
+        captions = get_cached_captions(video_id)
         if captions is None:
-            logging.error("Phase 2 invoked without captions")
+            logging.error(f"No cached captions found for video {video_id}")
             await ctx.yield_output(
                 ThesisArgumentResponse(
-                    main_thesis="Error: missing captions for Phase 2",
+                    main_thesis="Error: captions not found in cache",
                     argument_chains=[],
                 )
             )
