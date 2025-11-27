@@ -9,17 +9,6 @@ var envVars = DotEnv.Read();
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-
-var ytAgent = builder.AddPythonModule("yt-agent", "./app/", "yt_agent")
-    .WithUv()
-    .WithHttpEndpoint(env: "PORT")
-    // OpenAI settings
-    .WithEnvironment("AZURE_OPENAI_ENDPOINT_GPT5", envVars["AZURE_OPENAI_ENDPOINT_GPT5"])
-    .WithEnvironment("AZURE_OPENAI_API_KEY_GPT5", envVars["AZURE_OPENAI_API_KEY_GPT5"])
-    .WithEnvironment("AZURE_OPENAI_MODEL_DEPLOYMENT_NAME_GPT5", envVars["AZURE_OPENAI_MODEL_DEPLOYMENT_NAME_GPT5"])
-    .WithEnvironment("AZURE_OPENAI_ENDPOINT_VERSION_GPT5", envVars["AZURE_OPENAI_ENDPOINT_VERSION_GPT5"])
-;
-
 var app = builder.AddUvicornApp("app", "./app", "main:app")
     .WithUv()
     .WithEnvironment("AZURE_OPENAI_ENDPOINT_GPT5", envVars["AZURE_OPENAI_ENDPOINT_GPT5"])

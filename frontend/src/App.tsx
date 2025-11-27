@@ -11,9 +11,24 @@ interface ConceptExplanation {
   timestamp?: string
 }
 
+interface ArgumentChain {
+  title: string
+  premise: string
+  reasoning_steps: string[]
+  conclusion: string
+  implications?: string
+}
+
 // Phase 1 response - just key concepts
 interface KeyConceptsResponse {
   key_concepts: ConceptExplanation[]
+  captions?: string | null
+}
+
+// Phase 2 response - thesis + arguments
+interface ThesisArgumentResponse {
+  main_thesis: string
+  argument_chains: ArgumentChain[]
 }
 
 interface WebSocketEvent {
@@ -21,7 +36,15 @@ interface WebSocketEvent {
   event?: any
   id?: string
   message?: string
-  output?: KeyConceptsResponse
+  output?: any
+  phase?: number
+  // Phase 2 output shape
+  output_thesis?: ThesisArgumentResponse
+  output_phase?: any
+  phase_output?: any
+  output_generic?: any
+  outputGeneric?: any
+  output_any?: any
   timestamp: string
 }
 
@@ -29,11 +52,17 @@ function App() {
   const [videoUrl, setVideoUrl] = useState('')
   const [videoId, setVideoId] = useState<string | null>(null)
   const [notes, setNotes] = useState<KeyConceptsResponse | null>(null)
+  const [phase2, setPhase2] = useState<ThesisArgumentResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadingPhase, setLoadingPhase] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string[]>([])
   const [expandedConcepts, setExpandedConcepts] = useState<Set<number>>(new Set())
+  const [expandedArguments, setExpandedArguments] = useState<Set<number>>(new Set())
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['concepts']))
+  const [activePhase, setActivePhase] = useState<number>(1)
+  const [knowledgeLevel, setKnowledgeLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate')
+  const [captions, setCaptions] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   const toggleSection = (section: string) => {
@@ -72,6 +101,15 @@ function App() {
     })
   }
 
+  const toggleArgument = (index: number) => {
+    setExpandedArguments(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
+
   const copyNotes = async () => {
     if (!notes) return
     
@@ -99,18 +137,23 @@ function App() {
 
     setVideoId(extractedId)
     setLoading(true)
+    setLoadingPhase(1)
     setError(null)
     setNotes(null)
+    setPhase2(null)
     setProgress([])
     setExpandedConcepts(new Set())
+    setExpandedArguments(new Set())
+    setActivePhase(1)
+    setCaptions(null)
 
     try {
-      const ws = new WebSocket(`ws://${window.location.host}/ws/generateinsights`)
+      const ws = new WebSocket(`ws://${window.location.host}/ws/phase1`)
       wsRef.current = ws
 
       ws.onopen = () => {
         setProgress(prev => [...prev, '🔌 Connected to server...'])
-        ws.send(JSON.stringify({ video_url: videoUrl }))
+        ws.send(JSON.stringify({ video_url: videoUrl, knowledge_level: knowledgeLevel }))
       }
 
       ws.onmessage = (event) => {
@@ -141,19 +184,58 @@ function App() {
             break
           case 'workflow_output':
           case 'completed':
-            if (data.output) {
-              setNotes(data.output)
+            if (data.event) {
+              setNotes(data.event)
+              // Store captions for Phase 2
+              if (data.event.captions) {
+                setCaptions(data.event.captions)
+              }
             }
-            setProgress(prev => [...prev, `🎉 Phase 1 complete - Key concepts ready!`])
-            setLoading(false)
+            break
+          case 'phase_completed':
+            if (data.phase === 1) {
+              if (data.output) {
+                setNotes(data.output as KeyConceptsResponse)
+                // Store captions for Phase 2
+                if ((data.output as any).captions) {
+                  setCaptions((data.output as any).captions)
+                }
+              }
+              setActivePhase(1)
+              setProgress(prev => [...prev, '🎉 Phase 1 complete - Key concepts ready!'])
+              setLoading(false)
+              setLoadingPhase(null)
+            }
+            if (data.phase === 2) {
+              setProgress(prev => [...prev, '🎉 Phase 2 complete - Thesis & arguments ready!'])
+              setLoadingPhase(null)
+            }
+            break
+          case 'phase_started':
+            if (data.phase === 2) {
+              setActivePhase(2)
+              setLoadingPhase(2)
+              setProgress(prev => [...prev, '🧠 Phase 2: Extracting thesis & arguments...'])
+            }
+            break
+          case 'phase_output':
+            if (data.phase === 2 && data.output) {
+              setPhase2(data.output as ThesisArgumentResponse)
+              setActivePhase(2)
+              setLoadingPhase(null)
+              setExpandedSections(new Set(['thesis']))  // Collapse concepts, expand thesis
+              setProgress(prev => [...prev, '📝 Thesis & argument chains received'])
+            }
             break
           case 'error':
             setError(data.message || 'An error occurred')
             setLoading(false)
+            setLoadingPhase(null)
             break
           case 'step_failed':
             setError(`Step failed: ${data.message}`)
             setLoading(false)
+            setLoadingPhase(null)
             break
           default:
             console.log('Event:', data.type, data)
@@ -188,7 +270,80 @@ function App() {
       wsRef.current = null
     }
     setLoading(false)
+    setLoadingPhase(null)
     setProgress(prev => [...prev, '❌ Cancelled by user'])
+  }
+
+  const startPhase2 = () => {
+    if (!captions) {
+      setError('No captions available. Please run Phase 1 first.')
+      return
+    }
+
+    setLoadingPhase(2)
+    setActivePhase(2)
+    setProgress(prev => [...prev, '➡️ Starting Phase 2...'])
+
+    try {
+      const ws = new WebSocket(`ws://${window.location.host}/ws/phase2`)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setProgress(prev => [...prev, '🔌 Connected to Phase 2...'])
+        ws.send(JSON.stringify({ captions }))
+      }
+
+      ws.onmessage = (event) => {
+        const data: WebSocketEvent = JSON.parse(event.data)
+
+        switch (data.type) {
+          case 'phase_started':
+            setProgress(prev => [...prev, '🧠 Extracting thesis & arguments...'])
+            break
+          case 'step_started':
+            const startMsg = data.id === 'thesis_argument_extractor'
+              ? '🧠 Analyzing argument chains...'
+              : `Starting: ${data.id}`
+            setProgress(prev => [...prev, startMsg])
+            break
+          case 'workflow_output':
+            if (data.event) {
+              setPhase2(data.event as ThesisArgumentResponse)
+              setExpandedSections(new Set(['thesis']))
+              setProgress(prev => [...prev, '📝 Thesis & argument chains received'])
+            }
+            break
+          case 'phase_completed':
+            setProgress(prev => [...prev, '🎉 Phase 2 complete - Thesis & arguments ready!'])
+            setLoadingPhase(null)
+            break
+          case 'error':
+            setError(data.message || 'An error occurred in Phase 2')
+            setLoadingPhase(null)
+            break
+          case 'step_failed':
+            setError(`Phase 2 step failed: ${data.message}`)
+            setLoadingPhase(null)
+            break
+          default:
+            console.log('Phase 2 Event:', data.type, data)
+        }
+      }
+
+      ws.onerror = () => {
+        setError('Phase 2 WebSocket connection error.')
+        setLoadingPhase(null)
+      }
+
+      ws.onclose = () => {
+        if (loadingPhase === 2) {
+          setProgress(prev => [...prev, '🔌 Phase 2 connection closed'])
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect to Phase 2')
+      setLoadingPhase(null)
+    }
   }
 
   useEffect(() => {
@@ -222,6 +377,17 @@ function App() {
             onChange={(e) => setVideoUrl(e.target.value)}
             disabled={loading}
           />
+          <select
+            className="knowledge-select"
+            value={knowledgeLevel}
+            onChange={(e) => setKnowledgeLevel(e.target.value as 'beginner' | 'intermediate' | 'advanced')}
+            disabled={loading}
+            title="Your knowledge level"
+          >
+            <option value="beginner">🌱 Beginner</option>
+            <option value="intermediate">📚 Intermediate</option>
+            <option value="advanced">🎓 Advanced</option>
+          </select>
           <button 
             type="submit"
             className="header-submit"
@@ -254,7 +420,7 @@ function App() {
 
       <main className="main-content">
         {/* Loading/Progress State */}
-        {loading && (
+        {(loading || loadingPhase !== null) && (
           <div className="loading-overlay">
             <div className="loading-content">
               <div className="loading-spinner"></div>
@@ -302,8 +468,8 @@ function App() {
 
                     {/* Phase indicator */}
                     <div className="phase-indicator">
-                      <span className="phase-badge phase-active">Phase 1: Orient</span>
-                      <span className="phase-badge phase-upcoming">Phase 2: Understand</span>
+                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : phase2 ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
+                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : 'phase-upcoming'}`}>Phase 2: Understand</span>
                       <span className="phase-badge phase-upcoming">Phase 3: Connect</span>
                       <span className="phase-badge phase-upcoming">Phase 4: Test</span>
                     </div>
@@ -349,12 +515,65 @@ function App() {
                       )}
                     </div>
 
-                    {/* Future: Button to proceed to Phase 2 */}
+                    {/* Proceed to Phase 2 */}
+                    {!phase2 && (
                     <div className="phase-actions">
-                      <button className="phase-next-button" disabled title="Coming soon: Proceed to deeper analysis">
-                        I've watched the video - Go Deeper →
+                      <button 
+                        className="phase-next-button"
+                        disabled={!notes || !captions || loadingPhase === 2}
+                        onClick={startPhase2}
+                      >
+                        {loadingPhase === 2 ? '⏳ Phase 2 running...' : "I've watched the video - Go Deeper →"}
                       </button>
                     </div>
+                    )}
+
+                    {/* Phase 2 Output */}
+                    {phase2 && (
+                      <div className="notes-section">
+                        <button className="section-toggle" onClick={() => toggleSection('thesis')} aria-expanded={expandedSections.has('thesis')}>
+                          <span>🧠 Thesis & Arguments ({phase2.argument_chains.length})</span>
+                          <span className={`expand-icon ${expandedSections.has('thesis') ? 'expanded' : ''}`}>▼</span>
+                        </button>
+                        {expandedSections.has('thesis') && (
+                          <div className="thesis-section">
+                            <div className="thesis-card">
+                              <h4>Main Thesis</h4>
+                              <p>{phase2.main_thesis}</p>
+                            </div>
+                            <div className="arguments-list">
+                              {phase2.argument_chains.map((arg, idx) => (
+                                <div key={idx} className="argument-card">
+                                  <button 
+                                    className="argument-header"
+                                    onClick={() => toggleArgument(idx)}
+                                    aria-expanded={expandedArguments.has(idx)}
+                                  >
+                                    <span className="argument-title">{arg.title}</span>
+                                    <span className={`expand-icon ${expandedArguments.has(idx) ? 'expanded' : ''}`}>▼</span>
+                                  </button>
+                                  {expandedArguments.has(idx) && (
+                                    <div className="argument-details">
+                                      <p><strong>Premise:</strong> {arg.premise}</p>
+                                      <p><strong>Reasoning Steps:</strong></p>
+                                      <ul>
+                                        {arg.reasoning_steps.map((step, i) => (
+                                          <li key={i}>{step}</li>
+                                        ))}
+                                      </ul>
+                                      <p><strong>Conclusion:</strong> {arg.conclusion}</p>
+                                      {arg.implications && (
+                                        <p><strong>Implications:</strong> {arg.implications}</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

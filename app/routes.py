@@ -2,8 +2,11 @@
 
 import fastapi
 import json
+import asyncio
+import contextlib
 from datetime import datetime, timezone
 import logging
+from typing import Any, Callable
 
 import fastapi.responses
 from fastapi import WebSocket, WebSocketDisconnect, APIRouter
@@ -14,12 +17,99 @@ from agent_framework import (
     WorkflowOutputEvent,
     WorkflowStartedEvent,
 )
-from yt_agent import workflow as yt_workflow
-from models import KeyConceptsResponse
+from workflows import key_concepts_workflow, thesis_argument_workflow
+from models import KeyConceptsResponse, ThesisArgumentResponse
+from utilities import extract_video_id, fetch_transcript, convert_to_text_with_timestamps
 
 logger = logging.getLogger(name=__name__)
 
 router = APIRouter()
+
+
+def _timestamp() -> str:
+    """Return current UTC timestamp in ISO format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _send_error(websocket: WebSocket, message: str, phase: int | None = None) -> None:
+    """Send an error message via WebSocket."""
+    payload: dict[str, Any] = {
+        "type": "error",
+        "message": message,
+        "timestamp": _timestamp(),
+    }
+    if phase is not None:
+        payload["phase"] = phase
+    await websocket.send_json(payload)
+
+
+async def _stream_workflow_events(
+    websocket: WebSocket,
+    workflow,
+    input_data: str,
+    phase: int,
+    output_processor: Callable | None = None,
+) -> Any:
+    """
+    Stream workflow events to the WebSocket and return the final output.
+    
+    Args:
+        websocket: The WebSocket connection
+        workflow: The workflow to run
+        input_data: JSON string input for the workflow
+        phase: Phase number for event tagging
+        output_processor: Optional function to process workflow output before returning
+    
+    Returns:
+        The workflow output (processed if output_processor provided)
+    """
+    workflow_output = None
+    
+    async for event in workflow.run_stream(input_data):
+        now = _timestamp()
+        event_data = None
+
+        if isinstance(event, WorkflowStartedEvent):
+            event_data = {
+                "type": "workflow_started",
+                "event": str(event.data),
+                "timestamp": now,
+                "phase": phase,
+            }
+        elif isinstance(event, WorkflowOutputEvent):
+            workflow_output = event.data
+            if output_processor:
+                workflow_output = output_processor(workflow_output)
+            
+            event_data = {
+                "type": "workflow_output",
+                "event": workflow_output if isinstance(workflow_output, dict) else workflow_output,
+                "timestamp": now,
+                "phase": phase,
+            }
+        elif isinstance(event, ExecutorInvokedEvent):
+            event_data = {
+                "type": "step_started",
+                "event": event.data,
+                "id": event.executor_id,
+                "timestamp": now,
+                "phase": phase,
+            }
+        elif isinstance(event, ExecutorFailedEvent):
+            event_data = {
+                "type": "step_failed",
+                "event": event.details.message,
+                "id": event.executor_id,
+                "timestamp": now,
+                "phase": phase,
+            }
+        else:
+            continue
+
+        await websocket.send_json(event_data)
+        logger.info(f"📤 Phase {phase} - Sent event: {event_data['type']}")
+
+    return workflow_output
 
 
 @router.get("/health", response_class=fastapi.responses.PlainTextResponse)
@@ -28,127 +118,157 @@ async def health_check():
     return "Healthy"
 
 
-@router.websocket("/ws/generateinsights")
-async def websocket_generate_insights(websocket: WebSocket):
+@router.websocket("/ws/phase1")
+async def websocket_phase1(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time deep comprehension notes generation.
-    Streams workflow events back to the frontend as they occur.
+    WebSocket endpoint for Phase 1: Extract key concepts from a YouTube video.
 
     Protocol:
-    1. Client connects and sends JSON: {"video_url": "https://..."}
-    2. Server streams events: {"type": "...", "event": "...", "timestamp": "..."}
-    3. Final message: {"type": "completed", "output": {...}, "timestamp": "..."}
+    1. Client connects and sends JSON: {"video_url": "https://...", "knowledge_level": "beginner|intermediate|advanced"}
+    2. Server streams workflow events and outputs key concepts
+    3. Final output includes captions for use in subsequent phases
     """
     await websocket.accept()
 
     try:
-        data = await websocket.receive_text()
-        request_data = json.loads(data)
+        initial_text = await websocket.receive_text()
+        request_data = json.loads(initial_text)
 
-        video_url = request_data.get("video_url")
+        video_url = request_data.get("video_url") if isinstance(request_data, dict) else None
         if not video_url:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "message": "video_url is required",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            )
+            await _send_error(websocket, "video_url is required")
             await websocket.close(code=1008, reason="video_url required")
             return
 
-        logger.info(f"🎬 Starting deep comprehension for video: {video_url}")
+        logger.info(f"🎬 Starting Phase 1 for video: {video_url}")
 
-        await websocket.send_json(
-            {
-                "type": "started",
-                "message": "Deep comprehension workflow initiated...",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        await websocket.send_json({
+            "type": "phase_started",
+            "phase": 1,
+            "message": "Extracting key concepts...",
+            "timestamp": _timestamp(),
+        })
 
-        workflow_output = None
+        def process_output(output):
+            if isinstance(output, KeyConceptsResponse):
+                result = output.model_dump()
+                result["captions"] = output.captions  # Include captions for Phase 2
+                return result
+            return output
+
         try:
-            async for event in yt_workflow.run_stream(json.dumps(request_data)):
-                now = datetime.now(timezone.utc).isoformat()
-                event_data = None
-
-                if isinstance(event, WorkflowStartedEvent):
-                    event_data = {
-                        "type": "workflow_started",
-                        "event": str(event.data),
-                        "timestamp": now,
-                    }
-                elif isinstance(event, WorkflowOutputEvent):
-                    workflow_output = event.data
-                    if isinstance(workflow_output, KeyConceptsResponse):
-                        workflow_output = workflow_output.model_dump()
-
-                    event_data = {
-                        "type": "workflow_output",
-                        "event": workflow_output,
-                        "timestamp": now,
-                    }
-                elif isinstance(event, ExecutorInvokedEvent):
-                    event_data = {
-                        "type": "step_started",
-                        "event": event.data,
-                        "id": event.executor_id,
-                        "timestamp": now,
-                    }
-
-                elif isinstance(event, ExecutorFailedEvent):
-                    event_data = {
-                        "type": "step_failed",
-                        "event": event.details.message,
-                        "id": event.executor_id,
-                        "timestamp": now,
-                    }
-                else:
-                    continue
-
-                await websocket.send_json(event_data)
-                logger.info(f"📤 Sent event: {event_data['type']}")
-
-            await websocket.send_json(
-                {
-                    "type": "completed",
-                    "message": "Workflow completed successfully",
-                    "output": workflow_output,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
+            workflow_output = await _stream_workflow_events(
+                websocket=websocket,
+                workflow=key_concepts_workflow,
+                input_data=json.dumps(request_data),
+                phase=1,
+                output_processor=process_output,
             )
-            logger.info("✅ Deep comprehension workflow completed")
 
-        except Exception as workflow_error:
-            logger.error(f"❌ Workflow error: {workflow_error}")
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "message": f"Workflow error: {str(workflow_error)}",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            )
+            await websocket.send_json({
+                "type": "phase_completed",
+                "phase": 1,
+                "message": "Key concepts ready",
+                "output": workflow_output,
+                "timestamp": _timestamp(),
+            })
+            logger.info("✅ Phase 1 completed")
+
+        except Exception as e:
+            logger.error(f"❌ Phase 1 error: {e}")
+            await _send_error(websocket, f"Workflow error: {str(e)}", phase=1)
 
     except WebSocketDisconnect:
         logger.info("🔌 WebSocket disconnected")
     except Exception as e:
         logger.error(f"❌ WebSocket error: {e}")
-        try:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "message": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            await _send_error(websocket, str(e))
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await websocket.close()
-        except Exception:
-            pass
+
+
+@router.websocket("/ws/phase2")
+async def websocket_phase2(websocket: WebSocket):
+    """
+    WebSocket endpoint for Phase 2: Extract thesis and argument chains.
+
+    Protocol:
+    1. Client connects and sends JSON: {"captions": "..."} or {"video_url": "https://..."}
+    2. Server streams workflow events and outputs thesis + argument chains
+    """
+    await websocket.accept()
+
+    try:
+        initial_text = await websocket.receive_text()
+        request_data = json.loads(initial_text)
+
+        captions = request_data.get("captions") if isinstance(request_data, dict) else None
+        
+        # If no captions provided, try to fetch from video_url
+        if not captions:
+            video_url = request_data.get("video_url") if isinstance(request_data, dict) else None
+            if not video_url:
+                await _send_error(websocket, "Either 'captions' or 'video_url' is required")
+                await websocket.close(code=1008, reason="captions or video_url required")
+                return
+            
+            logger.info(f"📥 Fetching captions for Phase 2 from: {video_url}")
+            video_id = extract_video_id(video_url)
+            if not video_id:
+                await _send_error(websocket, "Invalid video URL")
+                await websocket.close(code=1008, reason="Invalid video URL")
+                return
+            
+            transcript = await asyncio.to_thread(fetch_transcript, video_id, ["en"])
+            captions = convert_to_text_with_timestamps(transcript)
+
+        logger.info("🎬 Starting Phase 2")
+
+        await websocket.send_json({
+            "type": "phase_started",
+            "phase": 2,
+            "message": "Extracting thesis and arguments...",
+            "timestamp": _timestamp(),
+        })
+
+        def process_output(output):
+            if isinstance(output, ThesisArgumentResponse):
+                return output.model_dump()
+            return output
+
+        try:
+            workflow_output = await _stream_workflow_events(
+                websocket=websocket,
+                workflow=thesis_argument_workflow,
+                input_data=json.dumps({"captions": captions}),
+                phase=2,
+                output_processor=process_output,
+            )
+
+            await websocket.send_json({
+                "type": "phase_completed",
+                "phase": 2,
+                "message": "Thesis and arguments ready",
+                "output": workflow_output,
+                "timestamp": _timestamp(),
+            })
+            logger.info("✅ Phase 2 completed")
+
+        except Exception as e:
+            logger.error(f"❌ Phase 2 error: {e}")
+            await _send_error(websocket, f"Workflow error: {str(e)}", phase=2)
+
+    except WebSocketDisconnect:
+        logger.info("🔌 WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"❌ WebSocket error: {e}")
+        with contextlib.suppress(Exception):
+            await _send_error(websocket, str(e))
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
 
 
 # Root endpoint
@@ -164,8 +284,8 @@ async def root():
             <h2>Available Endpoints:</h2>
             <ul>
                 <li><a href="/health">/health</a> - Health check</li>
-                <li><strong>POST /generateinsights</strong> - Generate insights from YouTube video</li>
-                <li><strong>WS /ws/generateinsights</strong> - WebSocket for real-time insights streaming</li>
+                <li><strong>WS /ws/phase1</strong> - Phase 1: Extract key concepts</li>
+                <li><strong>WS /ws/phase2</strong> - Phase 2: Extract thesis and arguments</li>
             </ul>
         </body>
     </html>

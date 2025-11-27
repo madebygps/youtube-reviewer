@@ -16,11 +16,6 @@ export default defineConfig({
         target: process.env.services__app__https__0 || process.env.services__app__http__0 || 'http://localhost:8000',
         changeOrigin: true
       },
-      // Proxy insights generation endpoint
-      '/generateinsights': {
-        target: process.env.services__app__https__0 || process.env.services__app__http__0 || 'http://localhost:8000',
-        changeOrigin: true
-      },
       // Proxy WebSocket connections
       '/ws': {
         target: process.env.services__app__https__0 || process.env.services__app__http__0 || 'http://localhost:8000',

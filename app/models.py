@@ -1,5 +1,4 @@
 from typing import List, Optional
-from agent_framework import WorkflowEvent
 from pydantic import BaseModel, Field
 
 
@@ -71,74 +70,28 @@ class ConnectionInsight(BaseModel):
         description="Why this connection matters",
     )
 
-class KeyConceptsResponse(BaseModel):
-    """Phase 1: Just the key concepts"""
-    key_concepts: List[ConceptExplanation]
-
-class DeepComprehensionNotes(BaseModel):
-    """Comprehensive study notes for deep understanding of video content."""
+class ThesisArgumentResponse(BaseModel):
+    """Phase 2: Main thesis and argument chains"""
 
     main_thesis: str = Field(
         ...,
         description="The central argument or main point of the video in 1-2 sentences",
     )
-    key_concepts: List[ConceptExplanation] = Field(
-        ...,
-        description="Key terms, acronyms, and concepts that need explanation",
-    )
     argument_chains: List[ArgumentChain] = Field(
         ...,
         description="The logical chains of reasoning presented in the video",
     )
-    connections: List[ConnectionInsight] = Field(
-        default_factory=list,
-        description="Important relationships between concepts",
-    )
-    synthesis: str = Field(
-        ...,
-        description="A synthesized understanding tying everything together",
-    )
-    open_questions: List[str] = Field(
-        default_factory=list,
-        description="Questions left unanswered or areas for further research",
+
+
+class KeyConceptsResponse(BaseModel):
+    """Phase 1: Key concepts extracted from video content."""
+    key_concepts: List[ConceptExplanation]
+    captions: Optional[str] = Field(
+        default=None,
+        description="Original captions text used to generate concepts (for subsequent phases)",
     )
 
-
-class GenerateInsightsRequest(BaseModel):
-    """Request model for generating insights from a YouTube video."""
-
-    video_url: str = Field(..., description="The YouTube video URL to analyze")
-    custom_prompt: Optional[str] = Field(
-        None, description="Optional custom prompt for insight generation"
-    )
-
-
-class GenerateInsightsResponse(BaseModel):
-    """Response model for insights generation."""
-
-    success: bool = Field(..., description="Whether the operation was successful")
-    notes: Optional[DeepComprehensionNotes] = Field(
-        None, description="Deep comprehension notes"
-    )
-    message: Optional[str] = Field(
-        None, description="Optional message or error details"
-    )
-
-
-class GenerateInsightsEvent(WorkflowEvent):
-    """Event emitted when insights generation is complete."""
-
-    def __init__(self, notes: DeepComprehensionNotes):
-        super().__init__(
-            f"Deep comprehension complete with {len(notes.key_concepts)} concepts"
-        )
-        self.notes = notes
-
-
-class DeepComprehensionAgentResponse(BaseModel):
-    """Response from the deep comprehension agent."""
-
-    notes: DeepComprehensionNotes = Field(
-        ...,
-        description="The comprehensive study notes",
-    )
+class ClaimVerifierResponse(BaseModel):
+    """Phase 2: Verifies Claims made in videos"""
+    claim: str
+    verdict: str
