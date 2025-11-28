@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import fastapi.responses
 from fastapi import WebSocket, WebSocketDisconnect, APIRouter
+from opentelemetry.trace import SpanKind
 
 from agent_framework import (
     ExecutorInvokedEvent,
@@ -16,6 +17,7 @@ from agent_framework import (
     WorkflowOutputEvent,
     WorkflowStartedEvent,
 )
+from agent_framework.observability import get_tracer
 from workflows import key_concepts_workflow, thesis_argument_workflow
 from models import KeyConceptsResponse, ThesisArgumentResponse
 
@@ -155,13 +157,21 @@ async def websocket_phase1(websocket: WebSocket):
             return output
 
         try:
-            workflow_output = await _stream_workflow_events(
-                websocket=websocket,
-                workflow=key_concepts_workflow,
-                input_data=json.dumps(request_data),
-                phase=1,
-                output_processor=process_output,
-            )
+            with get_tracer().start_as_current_span(
+                "Phase 1: Key Concepts", kind=SpanKind.INTERNAL
+            ) as span:
+                span.set_attribute("video.url", video_url)
+                
+                workflow_output = await _stream_workflow_events(
+                    websocket=websocket,
+                    workflow=key_concepts_workflow,
+                    input_data=json.dumps(request_data),
+                    phase=1,
+                    output_processor=process_output,
+                )
+
+                if workflow_output:
+                    span.set_attribute("concepts.count", len(workflow_output.get("key_concepts", [])))
 
             await websocket.send_json({
                 "type": "phase_completed",
@@ -224,13 +234,21 @@ async def websocket_phase2(websocket: WebSocket):
             return output
 
         try:
-            workflow_output = await _stream_workflow_events(
-                websocket=websocket,
-                workflow=thesis_argument_workflow,
-                input_data=json.dumps({"video_id": video_id}),
-                phase=2,
-                output_processor=process_output,
-            )
+            with get_tracer().start_as_current_span(
+                "Phase 2: Thesis & Arguments", kind=SpanKind.INTERNAL
+            ) as span:
+                span.set_attribute("video.id", video_id)
+                
+                workflow_output = await _stream_workflow_events(
+                    websocket=websocket,
+                    workflow=thesis_argument_workflow,
+                    input_data=json.dumps({"video_id": video_id}),
+                    phase=2,
+                    output_processor=process_output,
+                )
+
+                if workflow_output:
+                    span.set_attribute("argument_chains.count", len(workflow_output.get("argument_chains", [])))
 
             await websocket.send_json({
                 "type": "phase_completed",

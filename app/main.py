@@ -11,16 +11,22 @@ import os
 import fastapi
 import fastapi.staticfiles
 import opentelemetry.instrumentation.fastapi as otel_fastapi
+from agent_framework.observability import setup_observability
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import router as api_router
-import telemetry
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app):
-    telemetry.configure_opentelemetry()
+    # Bridge Aspire's OTEL_EXPORTER_OTLP_ENDPOINT to agent_framework's expected OTLP_ENDPOINT
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    setup_observability(otlp_endpoint=otlp_endpoint)
+    
+    # Ensure root logger level allows INFO logs to propagate to OTEL handler
+    # TODO: Replace with setup_logging() once available in agent-framework PyPI release
+    logging.getLogger().setLevel(logging.INFO)
     yield
 
 
@@ -33,13 +39,6 @@ app = FastAPI(
 otel_fastapi.FastAPIInstrumentor.instrument_app(app, exclude_spans=["send"])
 
 logger = logging.getLogger(__name__)
-
-
-# Test endpoint directly on app (not via router) to debug logging
-@app.get("/test")
-async def test_endpoint():
-    logger.info("Test endpoint called - this should appear in structured logs")
-    return {"message": "test"}
 
 
 # Configure CORS
