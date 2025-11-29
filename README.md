@@ -33,7 +33,7 @@ AZURE_OPENAI_ENDPOINT_VERSION_GPT5=2024-02-15-preview
 The project uses .NET Aspire to orchestrate both the frontend and backend:
 
 ```bash
-Aspire run
+aspire run
 ```
 
 This will start both the backend API and the frontend, with proper service discovery and health checks.
