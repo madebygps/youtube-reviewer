@@ -30,34 +30,10 @@ AZURE_OPENAI_ENDPOINT_VERSION_GPT5=2024-02-15-preview
 
 ## Running the Project
 
-### Using Aspire (Recommended)
-
 The project uses .NET Aspire to orchestrate both the frontend and backend:
 
 ```bash
-dotnet run apphost.cs
+Aspire run
 ```
 
 This will start both the backend API and the frontend, with proper service discovery and health checks.
-
-### Running Components Individually
-
-#### Backend (FastAPI)
-
-```bash
-cd app
-uv sync
-uv run uvicorn main:app --reload
-```
-
-The API will be available at `http://localhost:8000`.
-
-#### Frontend (Vite + React)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend will be available at `http://localhost:5173`.
