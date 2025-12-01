@@ -51,6 +51,7 @@ class ClaimVerifier(Executor):
                     verified_claims=[],
                     overall_credibility="Unable to assess",
                     summary="Error: No content provided for verification",
+                    cautions=[],
                 )
             )
             return
@@ -92,8 +93,10 @@ class ClaimVerifier(Executor):
                     verified_claims=[],
                     overall_credibility="Error",
                     summary="Error generating claim verification",
+                    cautions=[],
                 )
             )
+
 
 
 def get_claim_verifier_workflow():
