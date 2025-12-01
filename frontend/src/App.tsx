@@ -7,6 +7,7 @@ interface ConceptExplanation {
   definition: string
   relevance: string
   timestamp?: string
+  timestamp_seconds?: number
 }
 
 interface ArgumentChain {
@@ -62,6 +63,21 @@ function App() {
   const [activePhase, setActivePhase] = useState<number>(1)
   const [knowledgeLevel, setKnowledgeLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate')
   const wsRef = useRef<WebSocket | null>(null)
+  const playerRef = useRef<HTMLIFrameElement | null>(null)
+
+  const seekToTime = (seconds: number) => {
+    if (playerRef.current && videoId) {
+      // Use YouTube's postMessage API to seek
+      playerRef.current.contentWindow?.postMessage(
+        JSON.stringify({
+          event: 'command',
+          func: 'seekTo',
+          args: [seconds, true]
+        }),
+        '*'
+      )
+    }
+  }
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => {
@@ -455,7 +471,8 @@ function App() {
                 <div className="video-panel">
                   <div className="video-container">
                     <iframe
-                      src={`https://www.youtube.com/embed/${videoId}`}
+                      ref={playerRef}
+                      src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1`}
                       title="YouTube video player"
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -526,7 +543,20 @@ function App() {
                                   aria-expanded={expandedConcepts.has(index)}
                                 >
                                   <span className="concept-term">{concept.term}</span>
-                                  {concept.timestamp && <span className="concept-timestamp">{concept.timestamp}</span>}
+                                  {concept.timestamp && (
+                                    <span 
+                                      className="concept-timestamp clickable"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (concept.timestamp_seconds !== undefined) {
+                                          seekToTime(concept.timestamp_seconds)
+                                        }
+                                      }}
+                                      title="Jump to this point in video"
+                                    >
+                                      {concept.timestamp}
+                                    </span>
+                                  )}
                                   <span className={`expand-icon ${expandedConcepts.has(index) ? 'expanded' : ''}`}>▼</span>
                                 </button>
                                 {expandedConcepts.has(index) && (

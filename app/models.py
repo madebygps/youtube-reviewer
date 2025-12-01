@@ -8,7 +8,8 @@ class ConceptExplanation(BaseModel):
     term: str = Field(..., description="Concept name")
     definition: str = Field(..., description="One sentence definition")
     relevance: str = Field(..., description="One sentence: why it matters in this video")
-    timestamp: Optional[str] = Field(None, description="e.g. '5:30'")
+    timestamp: Optional[str] = Field(None, description="e.g. '00:05:30'")
+    timestamp_seconds: Optional[int] = Field(None, description="Timestamp in seconds for video seeking")
 
 
 class ArgumentChain(BaseModel):

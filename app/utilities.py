@@ -51,6 +51,32 @@ def format_timestamp(seconds: float) -> str:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def parse_timestamp_to_seconds(timestamp: str) -> int | None:
+    """Parse a timestamp string (e.g., '5:30', '1:05:30', '00:05:30') to seconds."""
+    if not timestamp:
+        return None
+    
+    # Remove any leading/trailing whitespace
+    timestamp = timestamp.strip()
+    
+    # Split by colon
+    parts = timestamp.split(':')
+    
+    try:
+        if len(parts) == 2:
+            # MM:SS format
+            minutes, seconds = int(parts[0]), int(parts[1])
+            return minutes * 60 + seconds
+        elif len(parts) == 3:
+            # HH:MM:SS format
+            hours, minutes, seconds = int(parts[0]), int(parts[1]), int(parts[2])
+            return hours * 3600 + minutes * 60 + seconds
+        else:
+            return None
+    except ValueError:
+        return None
+
+
 def _cache_path(video_id: str) -> Path:
     return CACHE_DIR / f"{video_id}.json"
 

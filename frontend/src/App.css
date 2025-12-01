@@ -1626,6 +1626,16 @@
   margin-right: 0.5rem;
 }
 
+.concept-timestamp.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.concept-timestamp.clickable:hover {
+  background: rgba(124, 146, 245, 0.3);
+  color: var(--accent-gradient-start);
+}
+
 .expand-icon {
   font-size: 0.625rem;
   color: var(--text-tertiary);
