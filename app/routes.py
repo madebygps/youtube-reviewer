@@ -18,8 +18,8 @@ from agent_framework import (
     WorkflowStartedEvent,
 )
 from agent_framework.observability import get_tracer
-from workflows import key_concepts_workflow, thesis_argument_workflow
-from models import KeyConceptsResponse, ThesisArgumentResponse
+from workflows import key_concepts_workflow, thesis_argument_workflow, connections_workflow
+from models import KeyConceptsResponse, ThesisArgumentResponse, ConnectionsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +274,83 @@ async def websocket_phase2(websocket: WebSocket):
             await websocket.close()
 
 
+@router.websocket("/ws/phase3")
+async def websocket_phase3(websocket: WebSocket):
+    """
+    WebSocket endpoint for Phase 3: Find connections between key concepts.
+
+    Protocol:
+    1. Client connects and sends JSON: {"key_concepts": [...]}
+    2. Server streams workflow events and outputs connections + synthesis
+    """
+    await websocket.accept()
+
+    try:
+        initial_text = await websocket.receive_text()
+        request_data = json.loads(initial_text)
+
+        key_concepts = request_data.get("key_concepts") if isinstance(request_data, dict) else None
+        
+        if not key_concepts:
+            await _send_error(websocket, "key_concepts is required")
+            await websocket.close(code=1008, reason="key_concepts required")
+            return
+
+        logger.info("🔗 Starting Phase 3")
+
+        await websocket.send_json({
+            "type": "phase_started",
+            "phase": 3,
+            "message": "Finding connections between concepts...",
+            "timestamp": _timestamp(),
+        })
+
+        def process_output(output):
+            if isinstance(output, ConnectionsResponse):
+                return output.model_dump()
+            return output
+
+        try:
+            with get_tracer().start_as_current_span(
+                "Phase 3: Connections", kind=SpanKind.INTERNAL
+            ) as span:
+                span.set_attribute("concepts.count", len(key_concepts))
+                
+                workflow_output = await _stream_workflow_events(
+                    websocket=websocket,
+                    workflow=connections_workflow,
+                    input_data=json.dumps({"key_concepts": key_concepts}),
+                    phase=3,
+                    output_processor=process_output,
+                )
+
+                if workflow_output:
+                    span.set_attribute("connections.count", len(workflow_output.get("connections", [])))
+
+            await websocket.send_json({
+                "type": "phase_completed",
+                "phase": 3,
+                "message": "Connections ready",
+                "output": workflow_output,
+                "timestamp": _timestamp(),
+            })
+            logger.info("✅ Phase 3 completed")
+
+        except Exception as e:
+            logger.error(f"❌ Phase 3 error: {e}")
+            await _send_error(websocket, f"Workflow error: {str(e)}", phase=3)
+
+    except WebSocketDisconnect:
+        logger.info("🔌 WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"❌ WebSocket error: {e}")
+        with contextlib.suppress(Exception):
+            await _send_error(websocket, str(e))
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
+
+
 # Root endpoint
 @router.get("/", response_class=fastapi.responses.HTMLResponse)
 async def root():
@@ -290,6 +367,7 @@ async def root():
                 <li><a href="/health">/health</a> - Health check</li>
                 <li><strong>WS /ws/phase1</strong> - Phase 1: Extract key concepts</li>
                 <li><strong>WS /ws/phase2</strong> - Phase 2: Extract thesis and arguments</li>
+                <li><strong>WS /ws/phase3</strong> - Phase 3: Find connections</li>
             </ul>
         </body>
     </html>

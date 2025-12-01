@@ -29,6 +29,19 @@ interface ThesisArgumentResponse {
   argument_chains: ArgumentChain[]
 }
 
+// Phase 3 response - connections
+interface ConnectionInsight {
+  concept_a: string
+  concept_b: string
+  relationship: string
+  significance: string
+}
+
+interface ConnectionsResponse {
+  connections: ConnectionInsight[]
+  synthesis: string
+}
+
 interface WebSocketEvent {
   type: string
   event?: any
@@ -51,6 +64,7 @@ function App() {
   const [videoId, setVideoId] = useState<string | null>(null)
   const [notes, setNotes] = useState<KeyConceptsResponse | null>(null)
   const [phase2, setPhase2] = useState<ThesisArgumentResponse | null>(null)
+  const [phase3, setPhase3] = useState<ConnectionsResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingPhase, setLoadingPhase] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +73,7 @@ function App() {
   const [progressStep, setProgressStep] = useState<string>('')
   const [expandedConcepts, setExpandedConcepts] = useState<Set<number>>(new Set())
   const [expandedArguments, setExpandedArguments] = useState<Set<number>>(new Set())
+  const [expandedConnections, setExpandedConnections] = useState<Set<number>>(new Set())
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['concepts']))
   const [activePhase, setActivePhase] = useState<number>(1)
   const [knowledgeLevel, setKnowledgeLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate')
@@ -124,6 +139,15 @@ function App() {
     })
   }
 
+  const toggleConnection = (index: number) => {
+    setExpandedConnections(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
+
   const copyNotes = async () => {
     if (!notes) return
     
@@ -155,11 +179,13 @@ function App() {
     setError(null)
     setNotes(null)
     setPhase2(null)
+    setPhase3(null)
     setProgress([])
     setProgressPercent(0)
     setProgressStep('')
     setExpandedConcepts(new Set())
     setExpandedArguments(new Set())
+    setExpandedConnections(new Set())
     setActivePhase(1)
 
     try {
@@ -389,6 +415,90 @@ function App() {
     }
   }
 
+  const startPhase3 = () => {
+    if (!notes) {
+      setError('No key concepts available. Please run Phase 1 first.')
+      return
+    }
+
+    setLoadingPhase(3)
+    setActivePhase(3)
+    setProgress(prev => [...prev, '➡️ Starting Phase 3...'])
+    setProgressPercent(0)
+    setProgressStep('Starting Phase 3...')
+
+    try {
+      const ws = new WebSocket(`ws://${window.location.host}/ws/phase3`)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setProgress(prev => [...prev, '🔌 Connected to Phase 3...'])
+        setProgressPercent(10)
+        setProgressStep('Connecting...')
+        ws.send(JSON.stringify({ key_concepts: notes.key_concepts }))
+      }
+
+      ws.onmessage = (event) => {
+        const data: WebSocketEvent = JSON.parse(event.data)
+
+        switch (data.type) {
+          case 'phase_started':
+            setProgress(prev => [...prev, '🔗 Finding connections between concepts...'])
+            setProgressPercent(25)
+            setProgressStep('Analyzing...')
+            break
+          case 'step_started':
+            const startMsg = data.id === 'connections_extractor'
+              ? '🔗 Discovering concept relationships...'
+              : `Starting: ${data.id}`
+            setProgress(prev => [...prev, startMsg])
+            setProgressPercent(50)
+            setProgressStep('AI finding connections...')
+            break
+          case 'workflow_output':
+            if (data.event) {
+              setPhase3(data.event as ConnectionsResponse)
+              setExpandedSections(new Set(['connections']))
+              setProgressPercent(90)
+              setProgressStep('Processing results...')
+              setProgress(prev => [...prev, '🔗 Connections discovered'])
+            }
+            break
+          case 'phase_completed':
+            setProgress(prev => [...prev, '🎉 Phase 3 complete - Connections ready!'])
+            setProgressPercent(100)
+            setProgressStep('Complete!')
+            setLoadingPhase(null)
+            break
+          case 'error':
+            setError(data.message || 'An error occurred in Phase 3')
+            setLoadingPhase(null)
+            break
+          case 'step_failed':
+            setError(`Phase 3 step failed: ${data.message}`)
+            setLoadingPhase(null)
+            break
+          default:
+            console.log('Phase 3 Event:', data.type, data)
+        }
+      }
+
+      ws.onerror = () => {
+        setError('Phase 3 WebSocket connection error.')
+        setLoadingPhase(null)
+      }
+
+      ws.onclose = () => {
+        if (loadingPhase === 3) {
+          setProgress(prev => [...prev, '🔌 Phase 3 connection closed'])
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect to Phase 3')
+      setLoadingPhase(null)
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (wsRef.current) {
@@ -500,9 +610,9 @@ function App() {
 
                     {/* Phase indicator */}
                     <div className="phase-indicator">
-                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : phase2 ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
-                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : 'phase-upcoming'}`}>Phase 2: Understand</span>
-                      <span className="phase-badge phase-upcoming">Phase 3: Connect</span>
+                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : (phase2 || phase3) ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
+                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : phase3 ? 'phase-completed' : phase2 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 2: Understand</span>
+                      <span className={`phase-badge ${activePhase === 3 ? 'phase-active' : phase3 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 3: Connect</span>
                       <span className="phase-badge phase-upcoming">Phase 4: Test</span>
                     </div>
 
@@ -595,8 +705,19 @@ function App() {
                         {expandedSections.has('thesis') && (
                           <div className="thesis-section">
                             <div className="thesis-card">
-                              <h4>Main Thesis</h4>
-                              <p>{phase2.main_thesis}</p>
+                              <button 
+                                className="thesis-header"
+                                onClick={() => toggleSection('main-thesis')}
+                                aria-expanded={expandedSections.has('main-thesis')}
+                              >
+                                <span className="thesis-title">Main Thesis</span>
+                                <span className={`expand-icon ${expandedSections.has('main-thesis') ? 'expanded' : ''}`}>▼</span>
+                              </button>
+                              {expandedSections.has('main-thesis') && (
+                                <div className="thesis-details">
+                                  <p>{phase2.main_thesis}</p>
+                                </div>
+                              )}
                             </div>
                             <div className="arguments-list">
                               {phase2.argument_chains.map((arg, idx) => (
@@ -622,6 +743,64 @@ function App() {
                                       {arg.implications && (
                                         <p><strong>Implications:</strong> {arg.implications}</p>
                                       )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Proceed to Phase 3 */}
+                    {phase2 && !phase3 && (
+                      <div className="phase-actions">
+                        <button 
+                          className="phase-next-button"
+                          disabled={!notes || loadingPhase === 3}
+                          onClick={startPhase3}
+                        >
+                          {loadingPhase === 3 ? '⏳ Finding connections...' : 'Find connections between concepts →'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Phase 3 Output */}
+                    {phase3 && (
+                      <div className="notes-section">
+                        <button className="section-toggle" onClick={() => toggleSection('connections')} aria-expanded={expandedSections.has('connections')}>
+                          <span>🔗 Connections ({phase3.connections.length})</span>
+                          <span className={`expand-icon ${expandedSections.has('connections') ? 'expanded' : ''}`}>▼</span>
+                        </button>
+                        {expandedSections.has('connections') && (
+                          <div className="connections-section">
+                            <div className="synthesis-card">
+                              <button className="synthesis-header" onClick={() => toggleSection('synthesis')} aria-expanded={expandedSections.has('synthesis')}>
+                                <span className="synthesis-title">Synthesis</span>
+                                <span className={`expand-icon ${expandedSections.has('synthesis') ? 'expanded' : ''}`}>▼</span>
+                              </button>
+                              {expandedSections.has('synthesis') && (
+                                <div className="synthesis-details">
+                                  <p>{phase3.synthesis}</p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="connections-list">
+                              {phase3.connections.map((conn, idx) => (
+                                <div key={idx} className="connection-card">
+                                  <button 
+                                    className="connection-header"
+                                    onClick={() => toggleConnection(idx)}
+                                    aria-expanded={expandedConnections.has(idx)}
+                                  >
+                                    <span className="connection-title">{conn.concept_a} ↔ {conn.concept_b}</span>
+                                    <span className={`expand-icon ${expandedConnections.has(idx) ? 'expanded' : ''}`}>▼</span>
+                                  </button>
+                                  {expandedConnections.has(idx) && (
+                                    <div className="connection-details">
+                                      <p><strong>Relationship:</strong> {conn.relationship}</p>
+                                      <p><strong>Significance:</strong> {conn.significance}</p>
                                     </div>
                                   )}
                                 </div>

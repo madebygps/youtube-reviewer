@@ -353,13 +353,11 @@
 /* Main content */
 .main-content {
   flex: 1;
-  max-width: 1400px;
   width: 100%;
-  margin: 0 auto;
-  padding: 0rem 2rem 2rem;
+  padding: 0;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: stretch;
 }
 
 /* Card styles */
@@ -1561,6 +1559,98 @@
   gap: 1rem;
 }
 
+.connections-section {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.synthesis-card {
+  background: var(--weather-card-bg);
+  border: 1px solid var(--weather-card-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.synthesis-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+}
+
+.synthesis-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent-gradient-start);
+}
+
+.synthesis-details {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--divider-color);
+}
+
+.synthesis-details p {
+  margin: 0.75rem 0 0;
+}
+
+.connection-card {
+  background: var(--weather-card-bg);
+  border: 1px solid var(--weather-card-border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.connection-card:hover {
+  box-shadow: 0 2px 8px var(--card-hover-shadow);
+}
+
+.connection-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.connection-title {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--accent-gradient-start);
+}
+
+.connection-details {
+  padding: 0.75rem 1rem 1rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.connections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .argument-card {
   background: var(--weather-card-bg);
   border: 1px solid var(--weather-card-border);
@@ -1607,13 +1697,34 @@
   background: var(--weather-card-bg);
   border: 1px solid var(--weather-card-border);
   border-radius: 8px;
-  padding: 1rem;
+  overflow: hidden;
 }
 
-.thesis-card h4 {
-  margin: 0 0 0.5rem;
+.thesis-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+}
+
+.thesis-title {
+  font-weight: 600;
   font-size: 0.95rem;
   color: var(--accent-gradient-start);
+}
+
+.thesis-details {
+  padding: 0 1rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .concept-timestamp {

@@ -51,6 +51,19 @@ class ConnectionInsight(BaseModel):
         description="Why this connection matters",
     )
 
+
+class ConnectionsResponse(BaseModel):
+    """Phase 3: Connections between key concepts."""
+
+    connections: List[ConnectionInsight] = Field(
+        ...,
+        description="Relationships and connections between the key concepts",
+    )
+    synthesis: str = Field(
+        ...,
+        description="A brief synthesis of how all the concepts work together",
+    )
+
 class ThesisArgumentResponse(BaseModel):
     """Phase 2: Main thesis and argument chains"""
 

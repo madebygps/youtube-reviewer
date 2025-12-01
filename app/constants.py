@@ -45,6 +45,19 @@ Respond in the schema provided. Be concise but complete."""
 
 CLAIM_VERIFIER_INSTRUCTIONS = """"""
 
+CONNECTIONS_INSTRUCTIONS = """You are an expert at finding meaningful connections between concepts.
+Given a list of key concepts from a video, identify how they relate to each other.
+
+For each connection:
+1. Identify two concepts that have a meaningful relationship
+2. Explain HOW they relate (cause-effect, part-whole, contrast, dependency, etc.)
+3. Explain WHY this connection matters for understanding the content
+
+Also provide a brief SYNTHESIS that explains how all the concepts work together as a whole.
+
+Be insightful but concise. Focus on non-obvious connections that deepen understanding.
+Aim for 3-6 connections depending on the number of concepts provided."""
+
 # Knowledge level prompts
 KNOWLEDGE_LEVEL_PROMPTS = {
     "beginner": "Include basic terms. 8-12 concepts max.",
