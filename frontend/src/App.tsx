@@ -58,6 +58,22 @@ interface ClaimVerifierResponse {
   cautions?: string[]
 }
 
+// Phase 5 response - quiz
+interface QuizQuestion {
+  question: string
+  options: string[]
+  correct_answer: number
+  explanation: string
+  difficulty: string
+  related_concept?: string
+}
+
+interface QuizResponse {
+  questions: QuizQuestion[]
+  passing_score: number
+  quiz_focus: string
+}
+
 interface WebSocketEvent {
   type: string
   event?: any
@@ -82,6 +98,10 @@ function App() {
   const [phase2, setPhase2] = useState<ThesisArgumentResponse | null>(null)
   const [phase3, setPhase3] = useState<ConnectionsResponse | null>(null)
   const [phase4, setPhase4] = useState<ClaimVerifierResponse | null>(null)
+  const [phase5, setPhase5] = useState<QuizResponse | null>(null)
+  const [quizAnswers, setQuizAnswers] = useState<Map<number, number>>(new Map())
+  const [quizSubmitted, setQuizSubmitted] = useState(false)
+  const [quizScore, setQuizScore] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingPhase, setLoadingPhase] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -208,6 +228,10 @@ function App() {
     setPhase2(null)
     setPhase3(null)
     setPhase4(null)
+    setPhase5(null)
+    setQuizAnswers(new Map())
+    setQuizSubmitted(false)
+    setQuizScore(null)
     setProgress([])
     setProgressPercent(0)
     setProgressStep('')
@@ -616,6 +640,128 @@ function App() {
     }
   }
 
+  const startPhase5 = () => {
+    if (!notes) {
+      setError('No content available for quiz generation.')
+      return
+    }
+
+    setLoadingPhase(5)
+    setActivePhase(5)
+    setQuizAnswers(new Map())
+    setQuizSubmitted(false)
+    setQuizScore(null)
+    setProgress(prev => [...prev, '➡️ Starting Phase 5...'])
+    setProgressPercent(0)
+    setProgressStep('Starting Phase 5...')
+
+    try {
+      const ws = new WebSocket(`ws://${window.location.host}/ws/phase5`)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setProgress(prev => [...prev, '🔌 Connected to Phase 5...'])
+        setProgressPercent(10)
+        setProgressStep('Connecting...')
+        ws.send(JSON.stringify({
+          key_concepts: notes.key_concepts,
+          thesis: phase2?.main_thesis || '',
+          argument_chains: phase2?.argument_chains || [],
+          connections: phase3?.connections || [],
+        }))
+      }
+
+      ws.onmessage = (event) => {
+        const data: WebSocketEvent = JSON.parse(event.data)
+
+        switch (data.type) {
+          case 'phase_started':
+            setProgress(prev => [...prev, '📝 Generating quiz...'])
+            setProgressPercent(25)
+            setProgressStep('Creating questions...')
+            break
+          case 'step_started':
+            const startMsg = data.id === 'quiz_generator'
+              ? '📝 Crafting quiz questions...'
+              : `Starting: ${data.id}`
+            setProgress(prev => [...prev, startMsg])
+            setProgressPercent(50)
+            setProgressStep('AI generating quiz...')
+            break
+          case 'workflow_output':
+            if (data.event) {
+              setPhase5(data.event as QuizResponse)
+              setExpandedSections(new Set(['quiz']))
+              setProgressPercent(90)
+              setProgressStep('Processing results...')
+              setProgress(prev => [...prev, '📝 Quiz generated'])
+            }
+            break
+          case 'phase_completed':
+            setProgress(prev => [...prev, '🎉 Phase 5 complete - Quiz ready!'])
+            setProgressPercent(100)
+            setProgressStep('Complete!')
+            setLoadingPhase(null)
+            break
+          case 'error':
+            setError(data.message || 'An error occurred in Phase 5')
+            setLoadingPhase(null)
+            break
+          case 'step_failed':
+            setError(`Phase 5 step failed: ${data.message}`)
+            setLoadingPhase(null)
+            break
+          default:
+            console.log('Phase 5 Event:', data.type, data)
+        }
+      }
+
+      ws.onerror = () => {
+        setError('Phase 5 WebSocket connection error.')
+        setLoadingPhase(null)
+      }
+
+      ws.onclose = () => {
+        if (loadingPhase === 5) {
+          setProgress(prev => [...prev, '🔌 Phase 5 connection closed'])
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect to Phase 5')
+      setLoadingPhase(null)
+    }
+  }
+
+  const handleQuizAnswer = (questionIndex: number, answerIndex: number) => {
+    if (quizSubmitted) return
+    setQuizAnswers(prev => {
+      const next = new Map(prev)
+      next.set(questionIndex, answerIndex)
+      return next
+    })
+  }
+
+  const submitQuiz = () => {
+    if (!phase5) return
+    
+    let correct = 0
+    phase5.questions.forEach((q, idx) => {
+      if (quizAnswers.get(idx) === q.correct_answer) {
+        correct++
+      }
+    })
+    
+    const score = Math.round((correct / phase5.questions.length) * 100)
+    setQuizScore(score)
+    setQuizSubmitted(true)
+  }
+
+  const retakeQuiz = () => {
+    setQuizAnswers(new Map())
+    setQuizSubmitted(false)
+    setQuizScore(null)
+  }
+
   useEffect(() => {
     return () => {
       if (wsRef.current) {
@@ -736,10 +882,11 @@ function App() {
 
                     {/* Phase indicator */}
                     <div className="phase-indicator">
-                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : (phase2 || phase3 || phase4) ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
-                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : (phase3 || phase4) ? 'phase-completed' : phase2 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 2: Understand</span>
-                      <span className={`phase-badge ${activePhase === 3 ? 'phase-active' : phase4 ? 'phase-completed' : phase3 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 3: Connect</span>
-                      <span className={`phase-badge ${activePhase === 4 ? 'phase-active' : phase4 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 4: Verify</span>
+                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : (phase2 || phase3 || phase4 || phase5) ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
+                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : (phase3 || phase4 || phase5) ? 'phase-completed' : phase2 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 2: Understand</span>
+                      <span className={`phase-badge ${activePhase === 3 ? 'phase-active' : (phase4 || phase5) ? 'phase-completed' : phase3 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 3: Connect</span>
+                      <span className={`phase-badge ${activePhase === 4 ? 'phase-active' : phase5 ? 'phase-completed' : phase4 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 4: Verify</span>
+                      <span className={`phase-badge ${activePhase === 5 ? 'phase-active' : phase5 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 5: Test</span>
                     </div>
 
                     <p className="phase-instruction">
@@ -1004,6 +1151,112 @@ function App() {
                                   )}
                                 </div>
                               ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Proceed to Phase 5 */}
+                    {phase4 && !phase5 && (
+                      <div className="phase-actions">
+                        <button 
+                          className="phase-next-button"
+                          disabled={!notes || loadingPhase === 5}
+                          onClick={startPhase5}
+                        >
+                          {loadingPhase === 5 ? '⏳ Generating quiz...' : 'Test your understanding →'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Phase 5 Output - Quiz */}
+                    {phase5 && (
+                      <div className="notes-section">
+                        <button className="section-toggle" onClick={() => toggleSection('quiz')} aria-expanded={expandedSections.has('quiz')}>
+                          <span>📝 Comprehension Quiz ({phase5.questions.length} questions)</span>
+                          <span className={`expand-icon ${expandedSections.has('quiz') ? 'expanded' : ''}`}>▼</span>
+                        </button>
+                        {expandedSections.has('quiz') && (
+                          <div className="quiz-section">
+                            <div className="quiz-header">
+                              <p className="quiz-focus">{phase5.quiz_focus}</p>
+                              {quizSubmitted && quizScore !== null && (
+                                <div className={`quiz-score ${quizScore >= phase5.passing_score ? 'quiz-passed' : 'quiz-failed'}`}>
+                                  <span className="score-value">{quizScore}%</span>
+                                  <span className="score-label">
+                                    {quizScore >= phase5.passing_score ? '✓ Passed!' : `Need ${phase5.passing_score}% to pass`}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="questions-list">
+                              {phase5.questions.map((q, qIdx) => {
+                                const userAnswer = quizAnswers.get(qIdx)
+                                const isCorrect = userAnswer === q.correct_answer
+                                const showResult = quizSubmitted
+                                
+                                return (
+                                  <div key={qIdx} className={`question-card ${showResult ? (isCorrect ? 'correct' : 'incorrect') : ''}`}>
+                                    <div className="question-header">
+                                      <span className={`difficulty-badge difficulty-${q.difficulty}`}>{q.difficulty}</span>
+                                      <span className="question-number">Q{qIdx + 1}</span>
+                                      {q.related_concept && (
+                                        <span className="related-concept">{q.related_concept}</span>
+                                      )}
+                                    </div>
+                                    <p className="question-text">{q.question}</p>
+                                    <div className="options-list">
+                                      {q.options.map((option, oIdx) => {
+                                        const isSelected = userAnswer === oIdx
+                                        const isCorrectOption = q.correct_answer === oIdx
+                                        let optionClass = 'option-button'
+                                        if (isSelected) optionClass += ' selected'
+                                        if (showResult) {
+                                          if (isCorrectOption) optionClass += ' correct-option'
+                                          else if (isSelected && !isCorrect) optionClass += ' wrong-option'
+                                        }
+                                        
+                                        return (
+                                          <button
+                                            key={oIdx}
+                                            className={optionClass}
+                                            onClick={() => handleQuizAnswer(qIdx, oIdx)}
+                                            disabled={quizSubmitted}
+                                          >
+                                            <span className="option-letter">{String.fromCharCode(65 + oIdx)}</span>
+                                            <span className="option-text">{option}</span>
+                                            {showResult && isCorrectOption && <span className="option-indicator">✓</span>}
+                                            {showResult && isSelected && !isCorrect && <span className="option-indicator">✗</span>}
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                    {showResult && (
+                                      <div className="explanation-box">
+                                        <strong>Explanation:</strong> {q.explanation}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            <div className="quiz-actions">
+                              {!quizSubmitted ? (
+                                <button 
+                                  className="submit-quiz-button"
+                                  onClick={submitQuiz}
+                                  disabled={quizAnswers.size < phase5.questions.length}
+                                >
+                                  {quizAnswers.size < phase5.questions.length 
+                                    ? `Answer all questions (${quizAnswers.size}/${phase5.questions.length})`
+                                    : 'Submit Quiz'}
+                                </button>
+                              ) : (
+                                <button className="retake-quiz-button" onClick={retakeQuiz}>
+                                  Retake Quiz
+                                </button>
+                              )}
                             </div>
                           </div>
                         )}

@@ -18,8 +18,8 @@ from agent_framework import (
     WorkflowStartedEvent,
 )
 from agent_framework.observability import get_tracer
-from workflows import key_concepts_workflow, thesis_argument_workflow, connections_workflow, claim_verifier_workflow
-from models import KeyConceptsResponse, ThesisArgumentResponse, ConnectionsResponse, ClaimVerifierResponse
+from workflows import key_concepts_workflow, thesis_argument_workflow, connections_workflow, claim_verifier_workflow, quiz_generator_workflow
+from models import KeyConceptsResponse, ThesisArgumentResponse, ConnectionsResponse, ClaimVerifierResponse, QuizResponse
 
 logger = logging.getLogger(__name__)
 
@@ -435,6 +435,92 @@ async def websocket_phase4(websocket: WebSocket):
             await websocket.close()
 
 
+@router.websocket("/ws/phase5")
+async def websocket_phase5(websocket: WebSocket):
+    """
+    WebSocket endpoint for Phase 5: Generate comprehension quiz.
+
+    Protocol:
+    1. Client connects and sends JSON: {"key_concepts": [...], "thesis": "...", "argument_chains": [...], "connections": [...]}
+    2. Server streams workflow events and outputs quiz questions
+    """
+    await websocket.accept()
+
+    try:
+        initial_text = await websocket.receive_text()
+        request_data = json.loads(initial_text)
+
+        key_concepts = request_data.get("key_concepts", []) if isinstance(request_data, dict) else []
+        thesis = request_data.get("thesis", "") if isinstance(request_data, dict) else ""
+        argument_chains = request_data.get("argument_chains", []) if isinstance(request_data, dict) else []
+        connections = request_data.get("connections", []) if isinstance(request_data, dict) else []
+        
+        if not key_concepts and not thesis:
+            await _send_error(websocket, "At least key_concepts or thesis is required")
+            await websocket.close(code=1008, reason="No content for quiz")
+            return
+
+        logger.info("📝 Starting Phase 5")
+
+        await websocket.send_json({
+            "type": "phase_started",
+            "phase": 5,
+            "message": "Generating quiz...",
+            "timestamp": _timestamp(),
+        })
+
+        def process_output(output):
+            if isinstance(output, QuizResponse):
+                return output.model_dump()
+            return output
+
+        try:
+            with get_tracer().start_as_current_span(
+                "Phase 5: Quiz Generation", kind=SpanKind.INTERNAL
+            ) as span:
+                span.set_attribute("concepts.count", len(key_concepts))
+                span.set_attribute("has_thesis", bool(thesis))
+                
+                workflow_output = await _stream_workflow_events(
+                    websocket=websocket,
+                    workflow=quiz_generator_workflow,
+                    input_data=json.dumps({
+                        "key_concepts": key_concepts,
+                        "thesis": thesis,
+                        "argument_chains": argument_chains,
+                        "connections": connections,
+                    }),
+                    phase=5,
+                    output_processor=process_output,
+                )
+
+                if workflow_output:
+                    span.set_attribute("questions.count", len(workflow_output.get("questions", [])))
+
+            await websocket.send_json({
+                "type": "phase_completed",
+                "phase": 5,
+                "message": "Quiz ready",
+                "output": workflow_output,
+                "timestamp": _timestamp(),
+            })
+            logger.info("✅ Phase 5 completed")
+
+        except Exception as e:
+            logger.error(f"❌ Phase 5 error: {e}")
+            await _send_error(websocket, f"Workflow error: {str(e)}", phase=5)
+
+    except WebSocketDisconnect:
+        logger.info("🔌 WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"❌ WebSocket error: {e}")
+        with contextlib.suppress(Exception):
+            await _send_error(websocket, str(e))
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
+
+
 # Root endpoint
 @router.get("/", response_class=fastapi.responses.HTMLResponse)
 async def root():
@@ -453,6 +539,7 @@ async def root():
                 <li><strong>WS /ws/phase2</strong> - Phase 2: Extract thesis and arguments</li>
                 <li><strong>WS /ws/phase3</strong> - Phase 3: Find connections</li>
                 <li><strong>WS /ws/phase4</strong> - Phase 4: Verify claims</li>
+                <li><strong>WS /ws/phase5</strong> - Phase 5: Comprehension quiz</li>
             </ul>
         </body>
     </html>

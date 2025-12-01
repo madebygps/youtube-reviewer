@@ -126,3 +126,50 @@ class ClaimVerifierResponse(BaseModel):
         None,
         description="Specific things viewers should be cautious about",
     )
+
+
+class QuizQuestion(BaseModel):
+    """A quiz question to test understanding."""
+
+    question: str = Field(..., description="The question text")
+    options: List[str] = Field(
+        ...,
+        description="List of 4 possible answers (A, B, C, D)",
+        min_length=4,
+        max_length=4,
+    )
+    correct_answer: int = Field(
+        ...,
+        description="Index of the correct answer (0-3)",
+        ge=0,
+        le=3,
+    )
+    explanation: str = Field(
+        ...,
+        description="Explanation of why the correct answer is right",
+    )
+    difficulty: str = Field(
+        ...,
+        description="Difficulty level: easy, medium, or hard",
+    )
+    related_concept: Optional[str] = Field(
+        None,
+        description="The key concept this question tests",
+    )
+
+
+class QuizResponse(BaseModel):
+    """Phase 5: Quiz to test user understanding."""
+
+    questions: List[QuizQuestion] = Field(
+        ...,
+        description="List of quiz questions",
+    )
+    passing_score: int = Field(
+        default=70,
+        description="Percentage score needed to pass (0-100)",
+    )
+    quiz_focus: str = Field(
+        ...,
+        description="Brief description of what this quiz tests",
+    )
