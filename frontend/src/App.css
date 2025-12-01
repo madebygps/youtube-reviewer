@@ -223,6 +223,43 @@
   white-space: nowrap;
 }
 
+/* Header GitHub Link */
+.header-github-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  transition: background 0.2s ease, transform 0.2s ease;
+  margin-left: 0.75rem;
+}
+
+.header-github-link:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+
+.header-github-link:focus-visible {
+  outline: 3px solid var(--accent-gradient-end);
+  outline-offset: 2px;
+}
+
+.header-github-link img {
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.header-github-link:hover img {
+  opacity: 1;
+}
+
+@media (prefers-color-scheme: light) {
+  .header-github-link img {
+    filter: brightness(0) invert(0);
+  }
+}
+
 /* Error Banner */
 .error-banner {
   display: flex;
@@ -2067,5 +2104,213 @@
 .phase-next-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Phase 4: Claim Verification Styles */
+.claims-section {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.credibility-card {
+  background: var(--weather-card-bg);
+  border: 1px solid var(--weather-card-border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.credibility-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.credibility-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.credibility-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.credibility-high {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.credibility-medium {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.credibility-low {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.credibility-mixed {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+
+.credibility-summary {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cautions-list {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--divider-color);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.cautions-list strong {
+  color: #facc15;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.cautions-list ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cautions-list li {
+  line-height: 1.5;
+}
+
+.claims-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.claim-card {
+  background: var(--weather-card-bg);
+  border: 1px solid var(--weather-card-border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.claim-card:hover {
+  box-shadow: 0 2px 8px var(--card-hover-shadow);
+}
+
+.claim-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.claim-text {
+  flex: 1;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.verdict-badge {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.verdict-badge.verdict-supported {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.verdict-badge.verdict-refuted {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.verdict-badge.verdict-partially-true {
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+}
+
+.verdict-badge.verdict-unverifiable {
+  background: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+}
+
+.claim-details {
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--divider-color);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.claim-details p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.claim-type {
+  padding: 0.125rem 0.5rem;
+  background: rgba(124, 146, 245, 0.1);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.verdict-text {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.verdict-text.verdict-supported {
+  color: #4ade80;
+}
+
+.verdict-text.verdict-refuted {
+  color: #f87171;
+}
+
+.verdict-text.verdict-partially-true {
+  color: #facc15;
+}
+
+.verdict-text.verdict-unverifiable {
+  color: #94a3b8;
 }
 

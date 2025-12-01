@@ -18,8 +18,8 @@ from agent_framework import (
     WorkflowStartedEvent,
 )
 from agent_framework.observability import get_tracer
-from workflows import key_concepts_workflow, thesis_argument_workflow, connections_workflow
-from models import KeyConceptsResponse, ThesisArgumentResponse, ConnectionsResponse
+from workflows import key_concepts_workflow, thesis_argument_workflow, connections_workflow, claim_verifier_workflow
+from models import KeyConceptsResponse, ThesisArgumentResponse, ConnectionsResponse, ClaimVerifierResponse
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +351,90 @@ async def websocket_phase3(websocket: WebSocket):
             await websocket.close()
 
 
+@router.websocket("/ws/phase4")
+async def websocket_phase4(websocket: WebSocket):
+    """
+    WebSocket endpoint for Phase 4: Verify claims made in the video.
+
+    Protocol:
+    1. Client connects and sends JSON: {"thesis": "...", "argument_chains": [...], "claims": [...]}
+    2. Server streams workflow events and outputs verification results
+    """
+    await websocket.accept()
+
+    try:
+        initial_text = await websocket.receive_text()
+        request_data = json.loads(initial_text)
+
+        thesis = request_data.get("thesis") if isinstance(request_data, dict) else None
+        argument_chains = request_data.get("argument_chains", []) if isinstance(request_data, dict) else []
+        claims = request_data.get("claims", []) if isinstance(request_data, dict) else []
+        
+        if not thesis and not argument_chains and not claims:
+            await _send_error(websocket, "At least one of thesis, argument_chains, or claims is required")
+            await websocket.close(code=1008, reason="No content to verify")
+            return
+
+        logger.info("🔍 Starting Phase 4")
+
+        await websocket.send_json({
+            "type": "phase_started",
+            "phase": 4,
+            "message": "Verifying claims...",
+            "timestamp": _timestamp(),
+        })
+
+        def process_output(output):
+            if isinstance(output, ClaimVerifierResponse):
+                return output.model_dump()
+            return output
+
+        try:
+            with get_tracer().start_as_current_span(
+                "Phase 4: Claim Verification", kind=SpanKind.INTERNAL
+            ) as span:
+                span.set_attribute("claims.count", len(claims))
+                span.set_attribute("argument_chains.count", len(argument_chains))
+                
+                workflow_output = await _stream_workflow_events(
+                    websocket=websocket,
+                    workflow=claim_verifier_workflow,
+                    input_data=json.dumps({
+                        "thesis": thesis,
+                        "argument_chains": argument_chains,
+                        "claims": claims,
+                    }),
+                    phase=4,
+                    output_processor=process_output,
+                )
+
+                if workflow_output:
+                    span.set_attribute("verified_claims.count", len(workflow_output.get("verified_claims", [])))
+
+            await websocket.send_json({
+                "type": "phase_completed",
+                "phase": 4,
+                "message": "Claim verification complete",
+                "output": workflow_output,
+                "timestamp": _timestamp(),
+            })
+            logger.info("✅ Phase 4 completed")
+
+        except Exception as e:
+            logger.error(f"❌ Phase 4 error: {e}")
+            await _send_error(websocket, f"Workflow error: {str(e)}", phase=4)
+
+    except WebSocketDisconnect:
+        logger.info("🔌 WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"❌ WebSocket error: {e}")
+        with contextlib.suppress(Exception):
+            await _send_error(websocket, str(e))
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
+
+
 # Root endpoint
 @router.get("/", response_class=fastapi.responses.HTMLResponse)
 async def root():
@@ -368,6 +452,7 @@ async def root():
                 <li><strong>WS /ws/phase1</strong> - Phase 1: Extract key concepts</li>
                 <li><strong>WS /ws/phase2</strong> - Phase 2: Extract thesis and arguments</li>
                 <li><strong>WS /ws/phase3</strong> - Phase 3: Find connections</li>
+                <li><strong>WS /ws/phase4</strong> - Phase 4: Verify claims</li>
             </ul>
         </body>
     </html>

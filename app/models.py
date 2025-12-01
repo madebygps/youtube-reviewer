@@ -85,7 +85,44 @@ class KeyConceptsResponse(BaseModel):
         description="Video ID for cache lookup in subsequent phases",
     )
 
+class VerifiedClaim(BaseModel):
+    """A claim that has been verified."""
+
+    claim: str = Field(..., description="The original claim from the video")
+    claim_type: str = Field(
+        ...,
+        description="Type of claim: factual, opinion, prediction, or statistical",
+    )
+    verdict: str = Field(
+        ...,
+        description="Verdict: supported, refuted, partially_true, or unverifiable",
+    )
+    reasoning: str = Field(
+        ...,
+        description="Explanation of why this verdict was reached",
+    )
+    evidence: Optional[str] = Field(
+        None,
+        description="Supporting or contradicting evidence found",
+    )
+
+
 class ClaimVerifierResponse(BaseModel):
-    """Phase 2: Verifies Claims made in videos"""
-    claim: str
-    verdict: str
+    """Phase 4: Verifies claims made in videos."""
+
+    verified_claims: List[VerifiedClaim] = Field(
+        ...,
+        description="List of claims with their verification status",
+    )
+    overall_credibility: str = Field(
+        ...,
+        description="Overall credibility assessment: high, medium, low, or mixed",
+    )
+    summary: str = Field(
+        ...,
+        description="Brief summary of the verification findings and patterns observed",
+    )
+    cautions: Optional[List[str]] = Field(
+        None,
+        description="Specific things viewers should be cautious about",
+    )

@@ -42,6 +42,22 @@ interface ConnectionsResponse {
   synthesis: string
 }
 
+// Phase 4 response - claim verification
+interface VerifiedClaim {
+  claim: string
+  claim_type: string
+  verdict: string
+  reasoning: string
+  evidence?: string
+}
+
+interface ClaimVerifierResponse {
+  verified_claims: VerifiedClaim[]
+  overall_credibility: string
+  summary: string
+  cautions?: string[]
+}
+
 interface WebSocketEvent {
   type: string
   event?: any
@@ -65,6 +81,7 @@ function App() {
   const [notes, setNotes] = useState<KeyConceptsResponse | null>(null)
   const [phase2, setPhase2] = useState<ThesisArgumentResponse | null>(null)
   const [phase3, setPhase3] = useState<ConnectionsResponse | null>(null)
+  const [phase4, setPhase4] = useState<ClaimVerifierResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingPhase, setLoadingPhase] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,6 +91,7 @@ function App() {
   const [expandedConcepts, setExpandedConcepts] = useState<Set<number>>(new Set())
   const [expandedArguments, setExpandedArguments] = useState<Set<number>>(new Set())
   const [expandedConnections, setExpandedConnections] = useState<Set<number>>(new Set())
+  const [expandedClaims, setExpandedClaims] = useState<Set<number>>(new Set())
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['concepts']))
   const [activePhase, setActivePhase] = useState<number>(1)
   const [knowledgeLevel, setKnowledgeLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate')
@@ -148,6 +166,15 @@ function App() {
     })
   }
 
+  const toggleClaim = (index: number) => {
+    setExpandedClaims(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
+
   const copyNotes = async () => {
     if (!notes) return
     
@@ -180,12 +207,14 @@ function App() {
     setNotes(null)
     setPhase2(null)
     setPhase3(null)
+    setPhase4(null)
     setProgress([])
     setProgressPercent(0)
     setProgressStep('')
     setExpandedConcepts(new Set())
     setExpandedArguments(new Set())
     setExpandedConnections(new Set())
+    setExpandedClaims(new Set())
     setActivePhase(1)
 
     try {
@@ -499,6 +528,94 @@ function App() {
     }
   }
 
+  const startPhase4 = () => {
+    if (!phase2) {
+      setError('No thesis or arguments available. Please run Phase 2 first.')
+      return
+    }
+
+    setLoadingPhase(4)
+    setActivePhase(4)
+    setProgress(prev => [...prev, '➡️ Starting Phase 4...'])
+    setProgressPercent(0)
+    setProgressStep('Starting Phase 4...')
+
+    try {
+      const ws = new WebSocket(`ws://${window.location.host}/ws/phase4`)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setProgress(prev => [...prev, '🔌 Connected to Phase 4...'])
+        setProgressPercent(10)
+        setProgressStep('Connecting...')
+        ws.send(JSON.stringify({
+          thesis: phase2.main_thesis,
+          argument_chains: phase2.argument_chains,
+          claims: phase2.argument_chains.map(a => a.conclusion)
+        }))
+      }
+
+      ws.onmessage = (event) => {
+        const data: WebSocketEvent = JSON.parse(event.data)
+
+        switch (data.type) {
+          case 'phase_started':
+            setProgress(prev => [...prev, '🔍 Verifying claims...'])
+            setProgressPercent(25)
+            setProgressStep('Analyzing...')
+            break
+          case 'step_started':
+            const startMsg = data.id === 'claim_verifier'
+              ? '🔍 Fact-checking claims...'
+              : `Starting: ${data.id}`
+            setProgress(prev => [...prev, startMsg])
+            setProgressPercent(50)
+            setProgressStep('AI verifying claims...')
+            break
+          case 'workflow_output':
+            if (data.event) {
+              setPhase4(data.event as ClaimVerifierResponse)
+              setExpandedSections(new Set(['claims']))
+              setProgressPercent(90)
+              setProgressStep('Processing results...')
+              setProgress(prev => [...prev, '🔍 Claims verified'])
+            }
+            break
+          case 'phase_completed':
+            setProgress(prev => [...prev, '🎉 Phase 4 complete - Verification ready!'])
+            setProgressPercent(100)
+            setProgressStep('Complete!')
+            setLoadingPhase(null)
+            break
+          case 'error':
+            setError(data.message || 'An error occurred in Phase 4')
+            setLoadingPhase(null)
+            break
+          case 'step_failed':
+            setError(`Phase 4 step failed: ${data.message}`)
+            setLoadingPhase(null)
+            break
+          default:
+            console.log('Phase 4 Event:', data.type, data)
+        }
+      }
+
+      ws.onerror = () => {
+        setError('Phase 4 WebSocket connection error.')
+        setLoadingPhase(null)
+      }
+
+      ws.onclose = () => {
+        if (loadingPhase === 4) {
+          setProgress(prev => [...prev, '🔌 Phase 4 connection closed'])
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect to Phase 4')
+      setLoadingPhase(null)
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (wsRef.current) {
@@ -562,6 +679,15 @@ function App() {
         </form>
 
         <span className="app-title">YouTube Deep Comprehension</span>
+        <a 
+          href="https://github.com/madebygps/yt-reviewer" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="header-github-link"
+          aria-label="View source on GitHub (opens in new tab)"
+        >
+          <img src="/github.svg" alt="" width="20" height="20" aria-hidden="true" />
+        </a>
       </header>
 
       {error && (
@@ -610,10 +736,10 @@ function App() {
 
                     {/* Phase indicator */}
                     <div className="phase-indicator">
-                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : (phase2 || phase3) ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
-                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : phase3 ? 'phase-completed' : phase2 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 2: Understand</span>
-                      <span className={`phase-badge ${activePhase === 3 ? 'phase-active' : phase3 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 3: Connect</span>
-                      <span className="phase-badge phase-upcoming">Phase 4: Test</span>
+                      <span className={`phase-badge ${activePhase === 1 ? 'phase-active' : (phase2 || phase3 || phase4) ? 'phase-completed' : ''}`}>Phase 1: Orient</span>
+                      <span className={`phase-badge ${activePhase === 2 ? 'phase-active' : (phase3 || phase4) ? 'phase-completed' : phase2 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 2: Understand</span>
+                      <span className={`phase-badge ${activePhase === 3 ? 'phase-active' : phase4 ? 'phase-completed' : phase3 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 3: Connect</span>
+                      <span className={`phase-badge ${activePhase === 4 ? 'phase-active' : phase4 ? 'phase-completed' : 'phase-upcoming'}`}>Phase 4: Verify</span>
                     </div>
 
                     <p className="phase-instruction">
@@ -810,6 +936,79 @@ function App() {
                         )}
                       </div>
                     )}
+
+                    {/* Proceed to Phase 4 */}
+                    {phase3 && !phase4 && (
+                      <div className="phase-actions">
+                        <button 
+                          className="phase-next-button"
+                          disabled={!phase2 || loadingPhase === 4}
+                          onClick={startPhase4}
+                        >
+                          {loadingPhase === 4 ? '⏳ Verifying claims...' : 'Verify claims →'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Phase 4 Output */}
+                    {phase4 && (
+                      <div className="notes-section">
+                        <button className="section-toggle" onClick={() => toggleSection('claims')} aria-expanded={expandedSections.has('claims')}>
+                          <span>🔍 Claim Verification ({phase4.verified_claims.length})</span>
+                          <span className={`expand-icon ${expandedSections.has('claims') ? 'expanded' : ''}`}>▼</span>
+                        </button>
+                        {expandedSections.has('claims') && (
+                          <div className="claims-section">
+                            <div className="credibility-card">
+                              <div className="credibility-header">
+                                <span className="credibility-label">Overall Credibility:</span>
+                                <span className={`credibility-badge credibility-${phase4.overall_credibility.toLowerCase()}`}>
+                                  {phase4.overall_credibility}
+                                </span>
+                              </div>
+                              <p className="credibility-summary">{phase4.summary}</p>
+                              {phase4.cautions && phase4.cautions.length > 0 && (
+                                <div className="cautions-list">
+                                  <strong>⚠️ Cautions:</strong>
+                                  <ul>
+                                    {phase4.cautions.map((caution, idx) => (
+                                      <li key={idx}>{caution}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                            <div className="claims-list">
+                              {phase4.verified_claims.map((claim, idx) => (
+                                <div key={idx} className="claim-card">
+                                  <button 
+                                    className="claim-header"
+                                    onClick={() => toggleClaim(idx)}
+                                    aria-expanded={expandedClaims.has(idx)}
+                                  >
+                                    <span className={`verdict-badge verdict-${claim.verdict.toLowerCase().replace('_', '-')}`}>
+                                      {claim.verdict === 'supported' ? '✓' : claim.verdict === 'refuted' ? '✗' : claim.verdict === 'partially_true' ? '◐' : '?'}
+                                    </span>
+                                    <span className="claim-text">{claim.claim}</span>
+                                    <span className={`expand-icon ${expandedClaims.has(idx) ? 'expanded' : ''}`}>▼</span>
+                                  </button>
+                                  {expandedClaims.has(idx) && (
+                                    <div className="claim-details">
+                                      <p><strong>Type:</strong> <span className="claim-type">{claim.claim_type}</span></p>
+                                      <p><strong>Verdict:</strong> <span className={`verdict-text verdict-${claim.verdict.toLowerCase().replace('_', '-')}`}>{claim.verdict.replace('_', ' ')}</span></p>
+                                      <p><strong>Reasoning:</strong> {claim.reasoning}</p>
+                                      {claim.evidence && (
+                                        <p><strong>Evidence:</strong> {claim.evidence}</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -817,24 +1016,6 @@ function App() {
           </section>
         )}
       </main>
-
-      <footer className="app-footer">
-        <nav aria-label="Footer navigation">
-          <a href="https://aspire.dev" target="_blank" rel="noopener noreferrer">
-            Learn more about Aspire<span className="visually-hidden"> (opens in new tab)</span>
-          </a>
-          <a 
-            href="https://github.com/dotnet/aspire" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="github-link"
-            aria-label="View Aspire on GitHub (opens in new tab)"
-          >
-            <img src="/github.svg" alt="" width="24" height="24" aria-hidden="true" />
-            <span className="visually-hidden">GitHub</span>
-          </a>
-        </nav>
-      </footer>
     </div>
   )
 }
