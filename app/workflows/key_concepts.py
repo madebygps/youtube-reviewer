@@ -118,13 +118,15 @@ class KeyConceptsExtractor(Executor):
         response = await self._agent.run(prompt)
 
         if isinstance(response.value, KeyConceptsResponse):
-            logger.info(f"Extracted {len(response.value.key_concepts)} key concepts")
+            logger.info(f"Extracted {len(
+                response.value.key_concepts)} key concepts")
             # Attach video_id so subsequent phases can fetch captions from cache
             response.value.video_id = video_id
             # Populate timestamp_seconds for each concept
             for concept in response.value.key_concepts:
                 if concept.timestamp:
-                    concept.timestamp_seconds = parse_timestamp_to_seconds(concept.timestamp)
+                    concept.timestamp_seconds = parse_timestamp_to_seconds(
+                        concept.timestamp)
             await ctx.yield_output(response.value)
         else:
             logger.error(f"Unexpected response type: {type(response.value)}")
